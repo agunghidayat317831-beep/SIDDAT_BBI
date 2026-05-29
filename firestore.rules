@@ -1,0 +1,136 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "agunghidayat317831@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidLogisticsEntry(data) {
+      return data.keys().hasAll(['location', 'commodity', 'size', 'type', 'flow', 'month', 'quantity', 'unit', 'createdAt', 'userId']) &&
+             data.location in ['Cipule', 'Mekarbuana'] &&
+             data.commodity in ['Ikan Mas', 'Nila', 'Lele'] &&
+             data.size in ['1-3 cm', '3-5 cm', 'Indukan'] &&
+             data.type in ['Produksi', 'Penjualan', 'Penyetokan Ulang', 'Hibah', 'Kematian Ikan'] &&
+             data.flow in ['Masuk', 'Keluar'] &&
+             data.month is string &&
+             data.quantity is number && data.quantity >= 0 &&
+             data.unit in ['ekor', 'kg'] &&
+             data.createdAt is number &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidFarmer(data) {
+      return data.keys().hasAll(['kecamatan', 'desa', 'namaPenanggungjawab', 'kegiatanUsaha', 'email', 'telephone', 'klasifikasiKolam', 'teknologiBudidaya', 'bentukUsaha', 'statusProfesi', 'statusKepemilikan', 'periodeSewa', 'jenisIkanUtama', 'jenisIkanTambahan', 'alamat', 'latitude', 'longitude', 'createdAt', 'userId']) &&
+             data.kecamatan is string &&
+             data.desa is string &&
+             data.namaPenanggungjawab is string &&
+             data.kegiatanUsaha is string &&
+             data.email is string &&
+             data.telephone is string &&
+             data.klasifikasiKolam is string &&
+             data.teknologiBudidaya is string &&
+             data.bentukUsaha is string &&
+             data.statusProfesi is string &&
+             data.statusKepemilikan is string &&
+             data.periodeSewa is string &&
+             data.jenisIkanUtama is string &&
+             data.jenisIkanTambahan is string &&
+             data.alamat is string &&
+             data.latitude is number &&
+             data.longitude is number &&
+             data.createdAt is number &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidTpi(data) {
+      return data.keys().hasAll(['namaTpi', 'kecamatan', 'desa', 'alamat', 'latitude', 'longitude', 'createdAt', 'userId']) &&
+             data.namaTpi is string &&
+             data.kecamatan is string &&
+             data.desa is string &&
+             data.alamat is string &&
+             data.latitude is number &&
+             data.longitude is number &&
+             data.createdAt is number &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidPHRecord(data) {
+      return data.keys().hasAll(['week', 'location', 'phValue', 'createdAt', 'userId']) &&
+             data.week is string &&
+             data.location in ['Cipule', 'Mekarbuana'] &&
+             data.phValue is number && data.phValue >= 0 && data.phValue <= 14 &&
+             data.createdAt is number &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidOxygenRecord(data) {
+      return data.keys().hasAll(['week', 'location', 'oxygenValue', 'createdAt', 'userId']) &&
+             data.week is string &&
+             data.location in ['Cipule', 'Mekarbuana'] &&
+             data.oxygenValue is number && data.oxygenValue >= 0 && data.oxygenValue <= 20 &&
+             data.createdAt is number &&
+             data.userId == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    match /logistics/{entryId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidLogisticsEntry(request.resource.data);
+      allow update: if isDocOwner() && isValidLogisticsEntry(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /farmers/{farmerId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidFarmer(request.resource.data);
+      allow update: if isDocOwner() && isValidFarmer(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /tpi/{tpiId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidTpi(request.resource.data);
+      allow update: if isDocOwner() && isValidTpi(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /ph_records/{recordId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidPHRecord(request.resource.data);
+      allow update: if isDocOwner() && isValidPHRecord(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /oxygen_records/{recordId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidOxygenRecord(request.resource.data);
+      allow update: if isDocOwner() && isValidOxygenRecord(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) && !('role' in request.resource.data) || isAdmin();
+    }
+  }
+}

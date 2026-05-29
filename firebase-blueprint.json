@@ -1,0 +1,116 @@
+{
+  "entities": {
+    "LogisticsEntry": {
+      "title": "Logistics Entry",
+      "description": "A single entry for fish logistics (production, sales, restocking, or grant).",
+      "type": "object",
+      "properties": {
+        "location": { "type": "string", "enum": ["Cipule", "Mekarbuana"] },
+        "commodity": { "type": "string", "enum": ["Ikan Mas", "Nila", "Lele"] },
+        "size": { "type": "string", "enum": ["1-3 cm", "3-5 cm", "Indukan"] },
+        "type": { "type": "string", "enum": ["Produksi", "Penjualan", "Penyetokan Ulang", "Hibah", "Kematian Ikan"] },
+        "flow": { "type": "string", "enum": ["Masuk", "Keluar"] },
+        "month": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string", "enum": ["ekor", "kg"] },
+        "createdAt": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["location", "commodity", "size", "type", "flow", "month", "quantity", "unit", "createdAt", "userId"]
+    },
+    "Farmer": {
+      "title": "Farmer",
+      "description": "A fish farmer receiving seeds.",
+      "type": "object",
+      "properties": {
+        "kecamatan": { "type": "string" },
+        "desa": { "type": "string" },
+        "namaPenanggungjawab": { "type": "string" },
+        "kegiatanUsaha": { "type": "string" },
+        "email": { "type": "string" },
+        "telephone": { "type": "string" },
+        "klasifikasiKolam": { "type": "string" },
+        "teknologiBudidaya": { "type": "string" },
+        "bentukUsaha": { "type": "string" },
+        "statusProfesi": { "type": "string" },
+        "statusKepemilikan": { "type": "string" },
+        "periodeSewa": { "type": "string" },
+        "jenisIkanUtama": { "type": "string" },
+        "jenisIkanTambahan": { "type": "string" },
+        "alamat": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["kecamatan", "desa", "namaPenanggungjawab", "kegiatanUsaha", "email", "telephone", "klasifikasiKolam", "teknologiBudidaya", "bentukUsaha", "statusProfesi", "statusKepemilikan", "periodeSewa", "jenisIkanUtama", "jenisIkanTambahan", "alamat", "latitude", "longitude", "createdAt", "userId"]
+    },
+    "Tpi": {
+      "title": "TPI",
+      "description": "Tempat Pelelangan Ikan (Fish Auction Site).",
+      "type": "object",
+      "properties": {
+        "namaTpi": { "type": "string" },
+        "kecamatan": { "type": "string" },
+        "desa": { "type": "string" },
+        "alamat": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "keterangan": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["namaTpi", "kecamatan", "desa", "alamat", "latitude", "longitude", "createdAt", "userId"]
+    },
+    "PHRecord": {
+      "title": "pH Record",
+      "description": "A record of water pH level.",
+      "type": "object",
+      "properties": {
+        "week": { "type": "string" },
+        "location": { "type": "string", "enum": ["Cipule", "Mekarbuana"] },
+        "phValue": { "type": "number" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["week", "location", "phValue", "createdAt", "userId"]
+    },
+    "OxygenRecord": {
+      "title": "Oxygen Record",
+      "description": "A weekly record of water oxygen level.",
+      "type": "object",
+      "properties": {
+        "week": { "type": "string" },
+        "location": { "type": "string", "enum": ["Cipule", "Mekarbuana"] },
+        "oxygenValue": { "type": "number" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["week", "location", "oxygenValue", "createdAt", "userId"]
+    }
+  },
+  "firestore": {
+    "/logistics/{entryId}": {
+      "schema": "LogisticsEntry",
+      "description": "Collection of all logistics entries."
+    },
+    "/farmers/{farmerId}": {
+      "schema": "Farmer",
+      "description": "Collection of all fish farmers."
+    },
+    "/tpi/{tpiId}": {
+      "schema": "Tpi",
+      "description": "Collection of all fish auction sites."
+    },
+    "/ph_records/{recordId}": {
+      "schema": "PHRecord",
+      "description": "Collection of all water pH records."
+    },
+    "/oxygen_records/{recordId}": {
+      "schema": "OxygenRecord",
+      "description": "Collection of all water dissolved oxygen records."
+    }
+  }
+}
