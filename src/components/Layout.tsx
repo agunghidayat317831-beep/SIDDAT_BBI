@@ -4,7 +4,6 @@ import {
   LayoutDashboard, 
   PlusCircle, 
   History, 
-  LogOut,
   Fish,
   Users,
   Map as MapIcon,
@@ -20,11 +19,10 @@ interface LayoutProps {
   children: React.ReactNode;
   activeTab: 'home' | 'dashboard' | 'input' | 'history' | 'farmer-input' | 'farmer-list' | 'farmer-map' | 'tpi-input' | 'tpi-list' | 'tpi-map' | 'ph-dashboard' | 'ph-input' | 'ph-history' | 'oxygen-input' | 'oxygen-history';
   setActiveTab: (tab: 'home' | 'dashboard' | 'input' | 'history' | 'farmer-input' | 'farmer-list' | 'farmer-map' | 'tpi-input' | 'tpi-list' | 'tpi-map' | 'ph-dashboard' | 'ph-input' | 'ph-history' | 'oxygen-input' | 'oxygen-history') => void;
-  onLogout: () => void;
   userEmail?: string | null;
 }
 
-export default function Layout({ children, activeTab, setActiveTab, onLogout, userEmail }: LayoutProps) {
+export default function Layout({ children, activeTab, setActiveTab, userEmail }: LayoutProps) {
   const navItems = [
     { id: 'home', label: 'Beranda Utama', icon: HomeIcon, group: 'Utama' },
     { id: 'input', label: 'Input Logistik', icon: PlusCircle, group: 'Logistik' },
@@ -81,17 +79,10 @@ export default function Layout({ children, activeTab, setActiveTab, onLogout, us
         </nav>
 
         <div className="p-4 border-t border-slate-100">
-          <div className="px-4 py-2 mb-4">
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">User</p>
-            <p className="text-sm font-semibold text-slate-700 truncate">{userEmail || 'Guest'}</p>
+          <div className="px-4 py-3 bg-slate-50 rounded-xl">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sesi Aktif</p>
+            <p className="text-sm font-bold text-slate-700 truncate mt-1">{userEmail || 'Tamu BBI Siddat'}</p>
           </div>
-          <button
-            onClick={onLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 transition-colors font-medium"
-          >
-            <LogOut className="w-5 h-5" />
-            Keluar
-          </button>
         </div>
       </aside>
 

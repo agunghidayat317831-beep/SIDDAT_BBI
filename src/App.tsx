@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
+  signInAnonymously, 
   signOut,
   User
 } from 'firebase/auth';
@@ -29,7 +28,7 @@ import PHList from './components/PHList';
 import OxygenForm from './components/OxygenForm';
 import OxygenList from './components/OxygenList';
 import Home from './components/Home';
-import { Loader2, Fish, LogIn } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -43,8 +42,29 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
+      if (currentUser) {
+        setUser(currentUser);
+        setLoading(false);
+      } else {
+        // Automatically attempt to sign in anonymously
+        signInAnonymously(auth)
+          .then((cred) => {
+            setUser(cred.user);
+            setLoading(false);
+          })
+          .catch((error) => {
+            console.warn('Anonymous login failed. Falling back to local guest user.', error);
+            // Fallback user state so the UI functions directly even if Firebase Auth has anonymous disabled
+            setUser({
+              uid: 'guest_bbi_user',
+              email: 'guest@siddatbbi.com',
+              displayName: 'Tamu BBI',
+              emailVerified: false,
+              isAnonymous: true,
+            } as any);
+            setLoading(false);
+          });
+      }
     });
 
     return () => unsubscribeAuth();
@@ -87,17 +107,6 @@ export default function App() {
     }
   }, [user]);
 
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error('Login Error:', error);
-    }
-  };
-
-  const handleLogout = () => signOut(auth);
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -106,38 +115,11 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl shadow-blue-100 p-8 border border-slate-100 text-center">
-          <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-200">
-            <Fish className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-slate-800 mb-2">Siddat BBI</h1>
-          <p className="text-slate-500 mb-8">Sistem Pencatatan Logistik Ikan Terpadu BBI Cipule & Mekarbuana.</p>
-          
-          <button
-            onClick={handleLogin}
-            className="w-full py-4 bg-white border-2 border-slate-200 hover:border-blue-500 hover:bg-blue-50 text-slate-700 font-bold rounded-2xl transition-all flex items-center justify-center gap-3 group"
-          >
-            <LogIn className="w-5 h-5 text-slate-400 group-hover:text-blue-500" />
-            Masuk dengan Google
-          </button>
-          
-          <p className="mt-6 text-xs text-slate-400">
-            Gunakan akun Google Anda untuk mengakses dashboard logistik.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <Layout 
       activeTab={activeTab} 
       setActiveTab={setActiveTab} 
-      onLogout={handleLogout}
-      userEmail={user.email}
+      userEmail={user?.email || (user?.isAnonymous ? 'Tamu Terautentikasi' : 'Tamu BBI Siddat')}
     >
       {activeTab === 'home' && <Home entries={entries} farmers={farmers} phRecords={phRecords} oxygenRecords={oxygenRecords} />}
       {activeTab === 'dashboard' && <Dashboard entries={entries} farmers={farmers} />}
