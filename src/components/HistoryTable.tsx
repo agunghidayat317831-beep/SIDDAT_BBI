@@ -12,6 +12,7 @@ import {
   FlowType 
 } from '../types';
 import { deleteLogisticsEntry, updateLogisticsEntry } from '../services/logisticsService';
+import { getClientUserRole } from '../services/userService';
 import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save, Upload, ClipboardList } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
@@ -21,6 +22,7 @@ interface HistoryTableProps {
 }
 
 export default function HistoryTable({ entries }: HistoryTableProps) {
+  const isAdmin = getClientUserRole() === 'admin';
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<LogisticsEntry | null>(null);
   const [editFormData, setEditFormData] = useState<Omit<LogisticsEntry, 'id' | 'userId' | 'createdAt'> | null>(null);
@@ -190,13 +192,13 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tipe</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Jumlah</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Bukti PAD</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>
+                {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 italic">
+                  <td colSpan={isAdmin ? 7 : 6} className="px-6 py-12 text-center text-slate-400 italic">
                     Belum ada data tercatat.
                   </td>
                 </tr>
@@ -248,43 +250,45 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                         <span className="text-slate-300">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4">
-                      {deletingId === entry.id ? (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleDelete(entry.id)}
-                            className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors cursor-pointer"
-                            title="Konfirmasi Hapus"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingId(null)}
-                            className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer"
-                            title="Batal"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => startEdit(entry)}
-                            className="p-2 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
-                            title="Ubah"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingId(entry.id)}
-                            className="p-2 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
-                            title="Hapus"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4">
+                        {deletingId === entry.id ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleDelete(entry.id)}
+                              className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors cursor-pointer"
+                              title="Konfirmasi Hapus"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeletingId(null)}
+                              className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer"
+                              title="Batal"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => startEdit(entry)}
+                              className="p-2 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
+                              title="Ubah"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeletingId(entry.id)}
+                              className="p-2 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
+                              title="Hapus"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

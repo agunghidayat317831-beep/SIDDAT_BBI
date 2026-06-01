@@ -4,51 +4,61 @@ import {
   query, 
   where, 
   onSnapshot, 
-  orderBy, 
   deleteDoc, 
   doc,
   updateDoc
 } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { db, auth, OperationType, handleFirestoreError } from '../firebase';
 import { OxygenRecord } from '../types';
+import { getTargetUserId, getClientUserRole } from './userService';
 
 const COLLECTION_NAME = 'oxygen_records';
 
 export const addOxygenRecord = async (record: Omit<OxygenRecord, 'id' | 'userId'>) => {
-  if (!auth.currentUser) throw new Error('User not authenticated');
-  
-  const docRef = await addDoc(collection(db, COLLECTION_NAME), {
-    ...record,
-    userId: auth.currentUser.uid,
-  });
-  return docRef.id;
+  try {
+    const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+      ...record,
+      userId: getTargetUserId(),
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
+  }
 };
 
 export const updateOxygenRecord = async (id: string, record: Partial<OxygenRecord>) => {
-  const docRef = doc(db, COLLECTION_NAME, id);
-  await updateDoc(docRef, record);
+  try {
+    const docRef = doc(db, COLLECTION_NAME, id);
+    await updateDoc(docRef, {
+      ...record,
+      userId: getTargetUserId(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_NAME}/${id}`);
+  }
 };
 
 export const subscribeToOxygenRecords = (callback: (records: OxygenRecord[]) => void) => {
-  if (!auth.currentUser) return () => {};
-
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where('userId', '==', auth.currentUser.uid),
-    orderBy('createdAt', 'desc')
-  );
+  const q = query(collection(db, COLLECTION_NAME));
 
   return onSnapshot(q, (snapshot) => {
     const records = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     })) as OxygenRecord[];
+    // Memory sort to bypass requirement of multi-field Firestore indexes
+    records.sort((a, b) => b.createdAt - a.createdAt);
     callback(records);
   }, (error) => {
-    console.error('Firestore Error:', error);
+    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
   });
 };
 
 export const deleteOxygenRecord = async (id: string) => {
-  await deleteDoc(doc(db, COLLECTION_NAME, id));
+  try {
+    await deleteDoc(doc(db, COLLECTION_NAME, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `${COLLECTION_NAME}/${id}`);
+  }
 };
+

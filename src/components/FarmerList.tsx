@@ -11,6 +11,7 @@ import {
   BENTUK_USAHA 
 } from '../types';
 import { deleteFarmer, updateFarmer } from '../services/farmerService';
+import { getClientUserRole } from '../services/userService';
 import { Trash2, Edit2, X, Check, Search, Filter, Save, Loader2, MapPin } from 'lucide-react';
 
 interface FarmerListProps {
@@ -18,6 +19,7 @@ interface FarmerListProps {
 }
 
 export default function FarmerList({ farmers }: FarmerListProps) {
+  const isAdmin = getClientUserRole() === 'admin';
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedKegiatan, setSelectedKegiatan] = useState('');
@@ -172,13 +174,13 @@ export default function FarmerList({ farmers }: FarmerListProps) {
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Lokasi (Kec/Desa)</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Kegiatan & Komoditas</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Kontak</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>
+                {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredFarmers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
+                  <td colSpan={isAdmin ? 5 : 4} className="px-6 py-12 text-center text-slate-400 italic">
                     Tidak menemukan data pembudidaya yang sesuai filter.
                   </td>
                 </tr>
@@ -224,41 +226,43 @@ export default function FarmerList({ farmers }: FarmerListProps) {
                         </a>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      {deletingId === farmer.id ? (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleDelete(farmer.id)}
-                            className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingId(null)}
-                            className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => startEdit(farmer)}
-                            className="p-2 text-slate-400 hover:text-blue-500 transition-colors"
-                            title="Edit"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeletingId(farmer.id)}
-                            className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-                            title="Hapus"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4">
+                        {deletingId === farmer.id ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleDelete(farmer.id)}
+                              className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeletingId(null)}
+                              className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => startEdit(farmer)}
+                              className="p-2 text-slate-400 hover:text-blue-500 transition-colors"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeletingId(farmer.id)}
+                              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                              title="Hapus"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

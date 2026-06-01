@@ -11,30 +11,34 @@ import {
   Droplets,
   Activity,
   Wind,
-  Home as HomeIcon
+  Home as HomeIcon,
+  LogOut
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getClientUserRole } from '../services/userService';
 
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: 'home' | 'dashboard' | 'input' | 'history' | 'farmer-input' | 'farmer-list' | 'farmer-map' | 'tpi-input' | 'tpi-list' | 'tpi-map' | 'ph-dashboard' | 'ph-input' | 'ph-history' | 'oxygen-input' | 'oxygen-history';
   setActiveTab: (tab: 'home' | 'dashboard' | 'input' | 'history' | 'farmer-input' | 'farmer-list' | 'farmer-map' | 'tpi-input' | 'tpi-list' | 'tpi-map' | 'ph-dashboard' | 'ph-input' | 'ph-history' | 'oxygen-input' | 'oxygen-history') => void;
   userEmail?: string | null;
+  onLogout?: () => void;
 }
 
-export default function Layout({ children, activeTab, setActiveTab, userEmail }: LayoutProps) {
+export default function Layout({ children, activeTab, setActiveTab, userEmail, onLogout }: LayoutProps) {
+  const isAdmin = getClientUserRole() === 'admin';
   const navItems = [
     { id: 'home', label: 'Beranda Utama', icon: HomeIcon, group: 'Utama' },
-    { id: 'input', label: 'Input Logistik', icon: PlusCircle, group: 'Logistik' },
+    ...(isAdmin ? [{ id: 'input', label: 'Input Logistik', icon: PlusCircle, group: 'Logistik' } as const] : []),
     { id: 'history', label: 'Riwayat Logistik', icon: History, group: 'Logistik' },
-    { id: 'ph-input', label: 'Input pH Air', icon: Droplets, group: 'pH Air' },
+    ...(isAdmin ? [{ id: 'ph-input', label: 'Input pH Air', icon: Droplets, group: 'pH Air' } as const] : []),
     { id: 'ph-history', label: 'Riwayat pH Air', icon: History, group: 'pH Air' },
-    { id: 'oxygen-input', label: 'Input Oksigen Air', icon: Wind, group: 'Kadar Oksigen' },
+    ...(isAdmin ? [{ id: 'oxygen-input', label: 'Input Oksigen Air', icon: Wind, group: 'Kadar Oksigen' } as const] : []),
     { id: 'oxygen-history', label: 'Riwayat Oksigen', icon: History, group: 'Kadar Oksigen' },
-    { id: 'farmer-input', label: 'Input Pembudidaya', icon: UserPlus, group: 'Pembudidaya' },
+    ...(isAdmin ? [{ id: 'farmer-input', label: 'Input Pembudidaya', icon: UserPlus, group: 'Pembudidaya' } as const] : []),
     { id: 'farmer-list', label: 'Daftar Pembudidaya', icon: Users, group: 'Pembudidaya' },
     { id: 'farmer-map', label: 'Peta Lokasi', icon: MapIcon, group: 'Pembudidaya' },
-    { id: 'tpi-input', label: 'Input TPI', icon: PlusCircle, group: 'Lokasi TPI' },
+    ...(isAdmin ? [{ id: 'tpi-input', label: 'Input TPI', icon: PlusCircle, group: 'Lokasi TPI' } as const] : []),
     { id: 'tpi-list', label: 'Daftar TPI', icon: Users, group: 'Lokasi TPI' },
     { id: 'tpi-map', label: 'Peta TPI', icon: MapIcon, group: 'Lokasi TPI' },
   ] as const;
@@ -78,11 +82,20 @@ export default function Layout({ children, activeTab, setActiveTab, userEmail }:
           ))}
         </nav>
 
-        <div className="p-4 border-t border-slate-100">
+        <div className="p-4 border-t border-slate-100 space-y-3">
           <div className="px-4 py-3 bg-slate-50 rounded-xl">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sesi Aktif</p>
             <p className="text-sm font-bold text-slate-700 truncate mt-1">{userEmail || 'Tamu BBI Siddat'}</p>
           </div>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 transition-colors font-bold rounded-xl text-xs cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Keluar Sesi
+            </button>
+          )}
         </div>
       </aside>
 

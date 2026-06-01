@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Tpi, KECAMATAN } from '../types';
 import { deleteTpi, updateTpi } from '../services/tpiService';
+import { getClientUserRole } from '../services/userService';
 import { Trash2, X, Check, Search, MapPin, Info, Edit2, Save, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -9,6 +10,7 @@ interface TpiListProps {
 }
 
 export default function TpiList({ tpiList }: TpiListProps) {
+  const isAdmin = getClientUserRole() === 'admin';
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingTpi, setEditingTpi] = useState<Tpi | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,13 +72,13 @@ export default function TpiList({ tpiList }: TpiListProps) {
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Lokasi (Kec/Desa)</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Alamat</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Keterangan</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>
+                {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredTpi.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
+                  <td colSpan={isAdmin ? 5 : 4} className="px-6 py-12 text-center text-slate-400 italic">
                     Belum ada data TPI.
                   </td>
                 </tr>
@@ -107,43 +109,45 @@ export default function TpiList({ tpiList }: TpiListProps) {
                         <span className="text-slate-300 text-xs">-</span>
                       )}
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        {deletingId === tpi.id ? (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleDelete(tpi.id)}
-                              className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setDeletingId(null)}
-                              className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => setEditingTpi(tpi)}
-                              className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
-                              title="Edit"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setDeletingId(tpi.id)}
-                              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-                              title="Hapus"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          {deletingId === tpi.id ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleDelete(tpi.id)}
+                                className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setDeletingId(null)}
+                                className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => setEditingTpi(tpi)}
+                                className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setDeletingId(tpi.id)}
+                                className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                                title="Hapus"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

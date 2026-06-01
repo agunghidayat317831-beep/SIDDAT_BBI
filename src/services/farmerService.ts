@@ -4,51 +4,61 @@ import {
   query, 
   where, 
   onSnapshot, 
-  orderBy, 
   deleteDoc, 
   doc,
   updateDoc
 } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { db, auth, OperationType, handleFirestoreError } from '../firebase';
 import { Farmer } from '../types';
+import { getTargetUserId, getClientUserRole } from './userService';
 
 const COLLECTION_NAME = 'farmers';
 
 export const addFarmer = async (farmer: Omit<Farmer, 'id' | 'userId'>) => {
-  if (!auth.currentUser) throw new Error('User not authenticated');
-  
-  const docRef = await addDoc(collection(db, COLLECTION_NAME), {
-    ...farmer,
-    userId: auth.currentUser.uid,
-  });
-  return docRef.id;
+  try {
+    const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+      ...farmer,
+      userId: getTargetUserId(),
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
+  }
 };
 
 export const updateFarmer = async (id: string, farmer: Partial<Farmer>) => {
-  const docRef = doc(db, COLLECTION_NAME, id);
-  await updateDoc(docRef, farmer);
+  try {
+    const docRef = doc(db, COLLECTION_NAME, id);
+    await updateDoc(docRef, {
+      ...farmer,
+      userId: getTargetUserId(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_NAME}/${id}`);
+  }
 };
 
 export const subscribeToFarmers = (callback: (farmers: Farmer[]) => void) => {
-  if (!auth.currentUser) return () => {};
-
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where('userId', '==', auth.currentUser.uid),
-    orderBy('createdAt', 'desc')
-  );
+  const q = query(collection(db, COLLECTION_NAME));
 
   return onSnapshot(q, (snapshot) => {
     const farmers = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     })) as Farmer[];
+    // Memory sort to bypass requirement of multi-field Firestore indexes
+    farmers.sort((a, b) => b.createdAt - a.createdAt);
     callback(farmers);
   }, (error) => {
-    console.error('Firestore Error:', error);
+    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
   });
 };
 
 export const deleteFarmer = async (id: string) => {
-  await deleteDoc(doc(db, COLLECTION_NAME, id));
+  try {
+    await deleteDoc(doc(db, COLLECTION_NAME, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `${COLLECTION_NAME}/${id}`);
+  }
 };
+

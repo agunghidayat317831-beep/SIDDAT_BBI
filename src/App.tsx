@@ -28,11 +28,26 @@ import PHList from './components/PHList';
 import OxygenForm from './components/OxygenForm';
 import OxygenList from './components/OxygenList';
 import Home from './components/Home';
+import Login from './components/Login';
 import { Loader2 } from 'lucide-react';
+import { setClientUserRole, setDiscoveredTargetUserId } from './services/userService';
+
+interface CustomUser {
+  username: string;
+  role: 'admin' | 'guest';
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [customUser, setCustomUser] = useState<CustomUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('siddat_login_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [activeTab, setActiveTab] = useState<'home' | 'dashboard' | 'input' | 'history' | 'farmer-input' | 'farmer-list' | 'farmer-map' | 'tpi-input' | 'tpi-list' | 'tpi-map' | 'ph-dashboard' | 'ph-input' | 'ph-history' | 'oxygen-input' | 'oxygen-history'>('home');
   const [entries, setEntries] = useState<LogisticsEntry[]>([]);
   const [farmers, setFarmers] = useState<Farmer[]>([]);
@@ -71,6 +86,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (user && customUser) {
+      setClientUserRole(customUser.role);
+    }
+  }, [user, customUser]);
+
+  useEffect(() => {
     if (user) {
       const unsubscribeLogistics = subscribeToLogistics((data) => {
         const normalized = data.map(e => ({
@@ -78,18 +99,48 @@ export default function App() {
           flow: e.flow || (e.type === 'Produksi' || e.type === 'Penyetokan Ulang' ? 'Masuk' : 'Keluar') as any
         }));
         setEntries(normalized);
+        if (customUser?.role === 'admin' && data.length > 0) {
+          const found = data.find(el => el.userId && el.userId !== user.uid);
+          if (found?.userId) {
+            setDiscoveredTargetUserId(found.userId);
+          }
+        }
       });
       const unsubscribeFarmers = subscribeToFarmers((data) => {
         setFarmers(data);
+        if (customUser?.role === 'admin' && data.length > 0) {
+          const found = data.find(el => el.userId && el.userId !== user.uid);
+          if (found?.userId) {
+            setDiscoveredTargetUserId(found.userId);
+          }
+        }
       });
       const unsubscribeTpi = subscribeToTpi((data) => {
         setTpiList(data);
+        if (customUser?.role === 'admin' && data.length > 0) {
+          const found = data.find(el => el.userId && el.userId !== user.uid);
+          if (found?.userId) {
+            setDiscoveredTargetUserId(found.userId);
+          }
+        }
       });
       const unsubscribePH = subscribeToPHRecords((data) => {
         setPhRecords(data);
+        if (customUser?.role === 'admin' && data.length > 0) {
+          const found = data.find(el => el.userId && el.userId !== user.uid);
+          if (found?.userId) {
+            setDiscoveredTargetUserId(found.userId);
+          }
+        }
       });
       const unsubscribeOxygen = subscribeToOxygenRecords((data) => {
         setOxygenRecords(data);
+        if (customUser?.role === 'admin' && data.length > 0) {
+          const found = data.find(el => el.userId && el.userId !== user.uid);
+          if (found?.userId) {
+            setDiscoveredTargetUserId(found.userId);
+          }
+        }
       });
       return () => {
         unsubscribeLogistics();
@@ -105,7 +156,18 @@ export default function App() {
       setPhRecords([]);
       setOxygenRecords([]);
     }
-  }, [user]);
+  }, [user, customUser]);
+
+  const handleLoginSuccess = (username: string, role: 'admin' | 'guest') => {
+    const userObj: CustomUser = { username, role };
+    localStorage.setItem('siddat_login_user', JSON.stringify(userObj));
+    setCustomUser(userObj);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('siddat_login_user');
+    setCustomUser(null);
+  };
 
   if (loading) {
     return (
@@ -115,11 +177,20 @@ export default function App() {
     );
   }
 
+  if (!customUser) {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  const userDisplayName = customUser.role === 'admin' 
+    ? 'Administrator (admin)' 
+    : 'Tamu Kunjungan (guest)';
+
   return (
     <Layout 
       activeTab={activeTab} 
       setActiveTab={setActiveTab} 
-      userEmail={user?.email || (user?.isAnonymous ? 'Tamu Terautentikasi' : 'Tamu BBI Siddat')}
+      userEmail={userDisplayName}
+      onLogout={handleLogout}
     >
       {activeTab === 'home' && <Home entries={entries} farmers={farmers} phRecords={phRecords} oxygenRecords={oxygenRecords} />}
       {activeTab === 'dashboard' && <Dashboard entries={entries} farmers={farmers} />}

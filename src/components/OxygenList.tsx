@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { OxygenRecord } from '../types';
 import { deleteOxygenRecord } from '../services/oxygenService';
+import { getClientUserRole } from '../services/userService';
 import { Trash2, X, Check, Search, Wind, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -9,6 +10,7 @@ interface OxygenListProps {
 }
 
 export default function OxygenList({ records }: OxygenListProps) {
+  const isAdmin = getClientUserRole() === 'admin';
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -61,13 +63,13 @@ export default function OxygenList({ records }: OxygenListProps) {
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Kadar Oksigen</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Keterangan</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>
+                {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">
+                  <td colSpan={isAdmin ? 6 : 5} className="px-6 py-12 text-center text-slate-400 italic">
                     Belum ada data riwayat kadar oksigen air.
                   </td>
                 </tr>
@@ -94,31 +96,33 @@ export default function OxygenList({ records }: OxygenListProps) {
                            </div>
                         ) : '-'}
                       </td>
-                      <td className="px-6 py-4">
-                        {deletingId === record.id ? (
-                          <div className="flex items-center gap-2">
+                      {isAdmin && (
+                        <td className="px-6 py-4">
+                          {deletingId === record.id ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleDelete(record.id)}
+                                className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setDeletingId(null)}
+                                className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
                             <button
-                              onClick={() => handleDelete(record.id)}
-                              className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                              onClick={() => setDeletingId(record.id)}
+                              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
                             >
-                              <Check className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => setDeletingId(null)}
-                              className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setDeletingId(record.id)}
-                            className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </td>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })
