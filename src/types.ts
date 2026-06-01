@@ -16,6 +16,7 @@ export interface LogisticsEntry {
   unit: "ekor" | "kg";
   createdAt: number;
   userId: string;
+  padReceiptImage?: string;
 }
 
 export interface PHRecord {

@@ -33,7 +33,8 @@ service cloud.firestore {
              data.quantity is number && data.quantity >= 0 &&
              data.unit in ['ekor', 'kg'] &&
              data.createdAt is number &&
-             data.userId == request.auth.uid;
+             data.userId == request.auth.uid &&
+             (!('padReceiptImage' in data) || data.padReceiptImage is string);
     }
 
     function isValidFarmer(data) {

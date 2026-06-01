@@ -34,6 +34,11 @@ export default function LogisticsForm() {
     unit: 'ekor' as 'ekor' | 'kg'
   });
 
+  // State for PAD image receipt upload
+  const [padReceiptImage, setPadReceiptImage] = useState<string | null>(null);
+  const [padImageError, setPadImageError] = useState<string | null>(null);
+  const [isCompressing, setIsCompressing] = useState(false);
+
   // Excel import state
   const [importing, setImporting] = useState(false);
   const [importResults, setImportResults] = useState<{
@@ -41,6 +46,66 @@ export default function LogisticsForm() {
     valid: Omit<LogisticsEntry, 'id' | 'userId'>[];
     invalid: { row: number; errors: string[] }[];
   } | null>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setPadImageError('File harus berupa gambar (.jpg, .jpeg, .png)');
+      return;
+    }
+
+    setPadImageError(null);
+    setIsCompressing(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 500;
+        const MAX_HEIGHT = 500;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          setPadReceiptImage(compressedBase64);
+        }
+        setIsCompressing(false);
+      };
+      img.onerror = () => {
+        setPadImageError('Gagal memproses gambar');
+        setIsCompressing(false);
+      };
+      if (evt.target?.result) {
+        img.src = evt.target.result as string;
+      }
+    };
+    reader.onerror = () => {
+      setPadImageError('Gagal membaca file');
+      setIsCompressing(false);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,11 +120,13 @@ export default function LogisticsForm() {
       await addLogisticsEntry({
         ...formData,
         flow: selectedType.flow as FlowType,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        ...(formData.type === 'Penjualan' && padReceiptImage ? { padReceiptImage } : {})
       });
 
       setSuccess(true);
       setFormData(prev => ({ ...prev, quantity: 0 }));
+      setPadReceiptImage(null);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: any) {
       setError(err.message || 'Gagal menyimpan data');
@@ -461,6 +528,73 @@ export default function LogisticsForm() {
                   </select>
                 </div>
               </div>
+
+              {/* Upload Gambar Setoran PAD (Hanya Penjualan) */}
+              {formData.type === 'Penjualan' && (
+                <div className="md:col-span-2 space-y-2 border-t border-slate-100 pt-4 animate-in fade-in duration-200">
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <ClipboardList className="w-4 h-4 text-emerald-500" />
+                    Bukti Setoran PAD <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold">Direkomendasikan</span>
+                  </label>
+                  
+                  {padReceiptImage ? (
+                    <div className="relative rounded-2xl border border-slate-200 p-3 bg-slate-50 flex items-center justify-between gap-4 max-w-md">
+                      <div className="flex items-center gap-3">
+                        <img 
+                          src={padReceiptImage} 
+                          alt="Bukti Setoran PAD" 
+                          referrerPolicy="no-referrer"
+                          className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-slate-700">Bukti_Setoran_PAD.jpeg</p>
+                          <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
+                            <Check className="w-3.5 h-3.5 text-emerald-500" /> Siap diunggah (Terkompresi)
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPadReceiptImage(null)}
+                        className="p-2 bg-white hover:bg-red-50 text-slate-400 hover:text-red-500 border border-slate-200 hover:border-red-200 rounded-xl transition-all shadow-sm cursor-pointer"
+                        title="Hapus Bukti"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/10 rounded-2xl p-6 text-center transition-all cursor-pointer group max-w-md">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        disabled={isCompressing}
+                      />
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="p-3 bg-slate-50 group-hover:bg-blue-50 text-slate-400 group-hover:text-blue-500 rounded-xl transition-all shadow-sm">
+                          {isCompressing ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <Upload className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-700 text-xs">Pilih atau Seret Foto Setoran PAD</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Mendukung format gambar (.png, .jpg, .jpeg)</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {padImageError && (
+                    <p className="text-xs font-semibold text-red-500 mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      {padImageError}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="pt-4 border-t border-slate-100">

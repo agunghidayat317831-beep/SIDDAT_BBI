@@ -13,6 +13,7 @@
         "month": { "type": "string" },
         "quantity": { "type": "number" },
         "unit": { "type": "string", "enum": ["ekor", "kg"] },
+        "padReceiptImage": { "type": "string", "description": "Base64 encoded image of PAD deposit/receipt (only for Sales flow)." },
         "createdAt": { "type": "number" },
         "userId": { "type": "string" }
       },

@@ -12,7 +12,7 @@ import {
   FlowType 
 } from '../types';
 import { deleteLogisticsEntry, updateLogisticsEntry } from '../services/logisticsService';
-import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save } from 'lucide-react';
+import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save, Upload, ClipboardList } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
 
@@ -27,6 +27,13 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
+  // Image zoom/lightbox state
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  // Edit image states
+  const [isCompressingEdit, setIsCompressingEdit] = useState(false);
+  const [editImageError, setEditImageError] = useState<string | null>(null);
+
   const startEdit = (entry: LogisticsEntry) => {
     setEditingEntry(entry);
     setEditFormData({
@@ -38,8 +45,72 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
       month: entry.month,
       quantity: entry.quantity,
       unit: entry.unit,
+      padReceiptImage: entry.padReceiptImage || undefined,
     });
     setEditError(null);
+    setEditImageError(null);
+  };
+
+  const handleEditImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setEditImageError('File harus berupa gambar (.jpg, .jpeg, .png)');
+      return;
+    }
+
+    setEditImageError(null);
+    setIsCompressingEdit(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 500;
+        const MAX_HEIGHT = 500;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          if (editFormData) {
+            setEditFormData({ ...editFormData, padReceiptImage: compressedBase64 });
+          }
+        }
+        setIsCompressingEdit(false);
+      };
+      img.onerror = () => {
+        setEditImageError('Gagal memproses gambar');
+        setIsCompressingEdit(false);
+      };
+      if (evt.target?.result) {
+        img.src = evt.target.result as string;
+      }
+    };
+    reader.onerror = () => {
+      setEditImageError('Gagal membaca file');
+      setIsCompressingEdit(false);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -55,7 +126,8 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
       await updateLogisticsEntry(editingEntry.id, {
         ...editFormData,
         flow: selectedType.flow as FlowType,
-        createdAt: editingEntry.createdAt
+        createdAt: editingEntry.createdAt,
+        padReceiptImage: editFormData.type === 'Penjualan' ? editFormData.padReceiptImage : undefined
       });
 
       setEditingEntry(null);
@@ -110,20 +182,21 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
-            <thead>
+             <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Minggu</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Lokasi</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Komoditas</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tipe</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Jumlah</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Bukti PAD</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">
+                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 italic">
                     Belum ada data tercatat.
                   </td>
                 </tr>
@@ -152,18 +225,42 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                       <span className="ml-1 text-xs text-slate-400">{entry.unit}</span>
                     </td>
                     <td className="px-6 py-4">
+                      {entry.padReceiptImage ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedImage(entry.padReceiptImage ?? null)}
+                          className="relative group block rounded-lg overflow-hidden border border-slate-200 cursor-pointer w-10 h-10 shrink-0"
+                          title="Klik untuk memperbesar bukti setoran PAD"
+                        >
+                          <img 
+                            src={entry.padReceiptImage} 
+                            alt="Bukti PAD" 
+                            className="w-10 h-10 object-cover group-hover:scale-110 transition-transform duration-150"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                            <span className="text-[9px] text-white font-extrabold uppercase p-0.5">Lihat</span>
+                          </div>
+                        </button>
+                      ) : entry.type === 'Penjualan' ? (
+                        <span className="text-[10px] text-slate-400 font-medium italic">Belum ada</span>
+                      ) : (
+                        <span className="text-slate-300">-</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
                       {deletingId === entry.id ? (
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleDelete(entry.id)}
-                            className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                            className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors cursor-pointer"
                             title="Konfirmasi Hapus"
                           >
                             <Check className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => setDeletingId(null)}
-                            className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                            className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer"
                             title="Batal"
                           >
                             <X className="w-4 h-4" />
@@ -173,14 +270,14 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => startEdit(entry)}
-                            className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                            className="p-2 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
                             title="Ubah"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => setDeletingId(entry.id)}
-                            className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                            className="p-2 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
                             title="Hapus"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -344,6 +441,73 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                     ))}
                   </div>
                 </div>
+
+                {/* Upload Gambar Setoran PAD (Hanya jika tipe Penjualan di Edit Modal) */}
+                {editFormData.type === 'Penjualan' && (
+                  <div className="md:col-span-2 space-y-1.5 border-t border-slate-100 pt-4 animate-in fade-in duration-200">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <ClipboardList className="w-4 h-4 text-emerald-500" />
+                      Bukti Setoran PAD <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold">Ubah Gambar</span>
+                    </label>
+
+                    {editFormData.padReceiptImage ? (
+                      <div className="relative rounded-2xl border border-slate-200 p-3 bg-slate-50 flex items-center justify-between gap-4 max-w-md">
+                        <div className="flex items-center gap-3">
+                          <img 
+                            src={editFormData.padReceiptImage} 
+                            alt="Bukti Setoran PAD" 
+                            referrerPolicy="no-referrer"
+                            className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
+                          />
+                          <div>
+                            <p className="text-xs font-bold text-slate-700">Bukti_Setoran_PAD_Edit.jpeg</p>
+                            <p className="text-[9px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
+                              <Check className="w-3.5 h-3.5 text-emerald-500" /> Tersimpan / Siap diubah
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEditFormData({ ...editFormData, padReceiptImage: undefined })}
+                          className="p-2 bg-white hover:bg-red-50 text-slate-400 hover:text-red-500 border border-slate-200 hover:border-red-200 rounded-xl transition-all shadow-sm cursor-pointer"
+                          title="Hapus Bukti"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/10 rounded-2xl p-5 text-center transition-all cursor-pointer group max-w-md">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleEditImageUpload}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          disabled={isCompressingEdit}
+                        />
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="p-2.5 bg-slate-50 group-hover:bg-blue-50 text-slate-400 group-hover:text-blue-500 rounded-xl transition-all shadow-sm">
+                            {isCompressingEdit ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Upload className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-700 text-xs">Pilih atau Seret Foto Baru</p>
+                            <p className="text-[9px] text-slate-400 mt-0.5">Mendukung .png, .jpg, .jpeg</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {editImageError && (
+                      <p className="text-xs font-semibold text-red-500 mt-1 flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        {editImageError}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}
@@ -357,7 +521,7 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                 </button>
                 <button
                   type="submit"
-                  disabled={editLoading}
+                  disabled={editLoading || isCompressingEdit}
                   className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-100 transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   {editLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -365,6 +529,38 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox / Modal Perbesar Gambar untuk Bukti PAD */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 bg-slate-900/85 backdrop-blur-md flex items-center justify-center z-50 p-4 cursor-zoom-out"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div 
+            className="relative bg-white rounded-3xl p-3 max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl border border-white/20 animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setSelectedImage(null)}
+              className="absolute -top-12 right-0 p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-all cursor-pointer"
+              title="Tutup"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="overflow-hidden rounded-2xl bg-slate-100 flex items-center justify-center min-h-[200px]">
+              <img 
+                src={selectedImage} 
+                alt="Bukti Setoran PAD Terbuka" 
+                className="max-h-[70vh] w-auto max-w-full object-contain pointer-events-none rounded-xl"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            <div className="text-center py-2.5">
+              <p className="text-xs font-bold text-slate-700">Bukti Setoran PAD Resmi (BBI)</p>
+            </div>
           </div>
         </div>
       )}
