@@ -17,6 +17,9 @@ export interface LogisticsEntry {
   createdAt: number;
   userId: string;
   padReceiptImage?: string;
+  farmerId?: string;
+  farmerName?: string;
+  farmerLocation?: string;
 }
 
 export interface PHRecord {
@@ -61,6 +64,7 @@ export interface Farmer {
   longitude: number;
   createdAt: number;
   userId: string;
+  photoUrl?: string;
 }
 
 export interface Tpi {

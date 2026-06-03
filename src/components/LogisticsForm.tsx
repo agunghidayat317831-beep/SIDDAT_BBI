@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LOCATIONS, 
   COMMODITIES, 
@@ -10,11 +10,13 @@ import {
   SizeCategory, 
   LogisticsType,
   FlowType,
-  LogisticsEntry
+  LogisticsEntry,
+  Farmer
 } from '../types';
 import { addLogisticsEntry } from '../services/logisticsService';
+import { subscribeToFarmers } from '../services/farmerService';
 import { cn } from '../lib/utils';
-import { Save, Loader2, AlertCircle, Download, Upload, Check, X, ClipboardList } from 'lucide-react';
+import { Save, Loader2, AlertCircle, Download, Upload, Check, X, ClipboardList, Search, User, MapPin } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function LogisticsForm() {
@@ -38,6 +40,39 @@ export default function LogisticsForm() {
   const [padReceiptImage, setPadReceiptImage] = useState<string | null>(null);
   const [padImageError, setPadImageError] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
+
+  // State for farmer search (khusus Hibah)
+  const [farmers, setFarmers] = useState<Farmer[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFarmer, setSelectedFarmer] = useState<Farmer | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToFarmers((data) => {
+      setFarmers(data);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredFarmers = searchQuery.trim() === ''
+    ? farmers
+    : farmers.filter(f => 
+        (f.namaPenanggungjawab || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (f.kecamatan || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (f.desa || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (f.alamat || '').toLowerCase().includes(searchQuery.toLowerCase())
+      );
 
   // Excel import state
   const [importing, setImporting] = useState(false);
@@ -117,16 +152,27 @@ export default function LogisticsForm() {
       const selectedType = TYPES.find(t => t.name === formData.type);
       if (!selectedType) throw new Error('Invalid type');
 
+      if (formData.type === 'Hibah' && !selectedFarmer) {
+        throw new Error('Harus memilih pembudidaya untuk penyaluran bantuan Hibah.');
+      }
+
       await addLogisticsEntry({
         ...formData,
         flow: selectedType.flow as FlowType,
         createdAt: Date.now(),
-        ...(formData.type === 'Penjualan' && padReceiptImage ? { padReceiptImage } : {})
+        ...((formData.type === 'Penjualan' || formData.type === 'Hibah') && padReceiptImage ? { padReceiptImage } : {}),
+        ...(formData.type === 'Hibah' && selectedFarmer ? {
+          farmerId: selectedFarmer.id,
+          farmerName: selectedFarmer.namaPenanggungjawab,
+          farmerLocation: `${selectedFarmer.desa}, ${selectedFarmer.kecamatan}`
+        } : {})
       });
 
       setSuccess(true);
       setFormData(prev => ({ ...prev, quantity: 0 }));
       setPadReceiptImage(null);
+      setSelectedFarmer(null);
+      setSearchQuery('');
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: any) {
       setError(err.message || 'Gagal menyimpan data');
@@ -486,7 +532,13 @@ export default function LogisticsForm() {
                         name="logisticsType"
                         value={type.name}
                         checked={formData.type === type.name}
-                        onChange={() => setFormData({ ...formData, type: type.name })}
+                        onChange={() => {
+                          setFormData({ ...formData, type: type.name });
+                          if (type.name !== 'Hibah') {
+                            setSelectedFarmer(null);
+                            setSearchQuery('');
+                          }
+                        }}
                         className="sr-only"
                       />
                       <span className={cn(
@@ -505,6 +557,107 @@ export default function LogisticsForm() {
                   ))}
                 </div>
               </div>
+
+              {/* Pilih Pembudidaya (Khusus Hibah) */}
+              {formData.type === 'Hibah' && (
+                <div className="md:col-span-2 space-y-2 border-t border-b border-slate-100 py-4 animate-in fade-in duration-200">
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <User className="w-4 h-4 text-blue-600" />
+                    Pencarian Pembudidaya (Penerima Hibah) <span className="text-red-500 font-bold">*</span>
+                  </label>
+
+                  <div className="relative" ref={dropdownRef}>
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-3 w-4.5 h-4.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          setShowDropdown(true);
+                        }}
+                        onFocus={() => setShowDropdown(true)}
+                        placeholder="Ketik nama penanggungjawab atau kecamatan/desa pembudidaya..."
+                        className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-sm placeholder:text-slate-400"
+                        required={!selectedFarmer}
+                      />
+                      {(searchQuery || selectedFarmer) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery('');
+                            setSelectedFarmer(null);
+                          }}
+                          className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {showDropdown && (
+                      <div className="absolute z-30 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                        <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                          {filteredFarmers.length === 0 ? (
+                            <div className="p-4 text-center text-slate-500 text-xs font-medium">
+                              Tidak ada pembudidaya yang cocok
+                            </div>
+                          ) : (
+                            filteredFarmers.map((farmer) => (
+                              <button
+                                key={farmer.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedFarmer(farmer);
+                                  setSearchQuery(farmer.namaPenanggungjawab);
+                                  setShowDropdown(false);
+                                }}
+                                className={cn(
+                                  "w-full text-left px-4 py-3 hover:bg-slate-50/80 transition-colors flex flex-col gap-0.5",
+                                  selectedFarmer?.id === farmer.id ? "bg-blue-50/50" : ""
+                                )}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                                    <User className="w-3.5 h-3.5 text-slate-400" />
+                                    {farmer.namaPenanggungjawab}
+                                  </span>
+                                  <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                                    {farmer.kegiatanUsaha || 'Budidaya'}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                                  <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                                  <span>{farmer.desa}, {farmer.kecamatan}</span>
+                                </div>
+                                {farmer.alamat && (
+                                  <div className="text-[10px] text-slate-400 italic pl-5 truncate max-w-full">
+                                    {farmer.alamat}
+                                  </div>
+                                )}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedFarmer && (
+                    <div className="p-3.5 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start gap-2.5 max-w-md animate-in zoom-in-95 duration-150">
+                      <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
+                        <Check className="w-4 h-4" />
+                      </div>
+                      <div className="text-xs">
+                        <p className="font-bold text-slate-800">Pembudidaya Terpilih:</p>
+                        <p className="font-semibold text-emerald-800 mt-1">{selectedFarmer.namaPenanggungjawab}</p>
+                        <p className="text-slate-500 mt-0.5">{selectedFarmer.desa}, {selectedFarmer.kecamatan}</p>
+                        <p className="text-slate-400 font-mono mt-0.5 text-[10px]">{selectedFarmer.telephone || 'Tanpa telepon'}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Jumlah */}
               <div className="space-y-2">
@@ -529,12 +682,12 @@ export default function LogisticsForm() {
                 </div>
               </div>
 
-              {/* Upload Gambar Setoran PAD (Hanya Penjualan) */}
-              {formData.type === 'Penjualan' && (
+              {/* Upload Gambar Bukti Penerimaan/Pengeluaran (Penjualan / Hibah) */}
+              {(formData.type === 'Penjualan' || formData.type === 'Hibah') && (
                 <div className="md:col-span-2 space-y-2 border-t border-slate-100 pt-4 animate-in fade-in duration-200">
                   <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
                     <ClipboardList className="w-4 h-4 text-emerald-500" />
-                    Bukti Setoran PAD <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold">Direkomendasikan</span>
+                    Bukti {formData.type === 'Penjualan' ? 'Setoran PAD' : 'Penerimaan/Pengeluaran'} <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold">Direkomendasikan</span>
                   </label>
                   
                   {padReceiptImage ? (
@@ -542,12 +695,12 @@ export default function LogisticsForm() {
                       <div className="flex items-center gap-3">
                         <img 
                           src={padReceiptImage} 
-                          alt="Bukti Setoran PAD" 
+                          alt="Bukti Penerimaan/Pengeluaran" 
                           referrerPolicy="no-referrer"
                           className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
                         />
                         <div>
-                          <p className="text-xs font-bold text-slate-700">Bukti_Setoran_PAD.jpeg</p>
+                          <p className="text-xs font-bold text-slate-700">Bukti_{formData.type === 'Penjualan' ? 'Setoran_PAD' : 'Penerimaan_Pengeluaran'}.jpeg</p>
                           <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
                             <Check className="w-3.5 h-3.5 text-emerald-500" /> Siap diunggah (Terkompresi)
                           </p>
@@ -580,7 +733,7 @@ export default function LogisticsForm() {
                           )}
                         </div>
                         <div>
-                          <p className="font-bold text-slate-700 text-xs">Pilih atau Seret Foto Setoran PAD</p>
+                          <p className="font-bold text-slate-700 text-xs">Pilih atau Seret Foto Bukti {formData.type === 'Penjualan' ? 'Setoran PAD' : 'Penerimaan/Pengeluaran'}</p>
                           <p className="text-[10px] text-slate-400 mt-1">Mendukung format gambar (.png, .jpg, .jpeg)</p>
                         </div>
                       </div>

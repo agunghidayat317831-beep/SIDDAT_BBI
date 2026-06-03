@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LogisticsEntry, 
   LOCATIONS, 
@@ -9,11 +9,13 @@ import {
   BBILocation, 
   FishCommodity, 
   SizeCategory, 
-  FlowType 
+  FlowType,
+  Farmer
 } from '../types';
 import { deleteLogisticsEntry, updateLogisticsEntry } from '../services/logisticsService';
+import { subscribeToFarmers } from '../services/farmerService';
 import { getClientUserRole } from '../services/userService';
-import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save, Upload, ClipboardList } from 'lucide-react';
+import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save, Upload, ClipboardList, Search, User, MapPin } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
 
@@ -36,6 +38,39 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
   const [isCompressingEdit, setIsCompressingEdit] = useState(false);
   const [editImageError, setEditImageError] = useState<string | null>(null);
 
+  // State for farmer list and edit selection
+  const [farmers, setFarmers] = useState<Farmer[]>([]);
+  const [editSearchQuery, setEditSearchQuery] = useState('');
+  const [editSelectedFarmer, setEditSelectedFarmer] = useState<Farmer | null>(null);
+  const [showEditDropdown, setShowEditDropdown] = useState(false);
+  const editDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToFarmers((data) => {
+      setFarmers(data);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (editDropdownRef.current && !editDropdownRef.current.contains(event.target as Node)) {
+        setShowEditDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredFarmers = editSearchQuery.trim() === ''
+    ? farmers
+    : farmers.filter(f => 
+        (f.namaPenanggungjawab || '').toLowerCase().includes(editSearchQuery.toLowerCase()) ||
+        (f.kecamatan || '').toLowerCase().includes(editSearchQuery.toLowerCase()) ||
+        (f.desa || '').toLowerCase().includes(editSearchQuery.toLowerCase()) ||
+        (f.alamat || '').toLowerCase().includes(editSearchQuery.toLowerCase())
+      );
+
   const startEdit = (entry: LogisticsEntry) => {
     setEditingEntry(entry);
     setEditFormData({
@@ -48,7 +83,28 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
       quantity: entry.quantity,
       unit: entry.unit,
       padReceiptImage: entry.padReceiptImage || undefined,
+      farmerId: entry.farmerId || undefined,
+      farmerName: entry.farmerName || undefined,
+      farmerLocation: entry.farmerLocation || undefined,
     });
+    setEditSearchQuery(entry.farmerName || '');
+    if (entry.farmerId) {
+      const found = farmers.find(f => f.id === entry.farmerId);
+      if (found) {
+        setEditSelectedFarmer(found);
+      } else if (entry.farmerName) {
+        setEditSelectedFarmer({
+          id: entry.farmerId,
+          namaPenanggungjawab: entry.farmerName,
+          desa: entry.farmerLocation?.split(', ')[0] || '',
+          kecamatan: entry.farmerLocation?.split(', ')[1] || '',
+          userId: entry.userId,
+          createdAt: Date.now()
+        } as any);
+      }
+    } else {
+      setEditSelectedFarmer(null);
+    }
     setEditError(null);
     setEditImageError(null);
   };
@@ -125,15 +181,30 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
       const selectedType = TYPES.find(t => t.name === editFormData.type);
       if (!selectedType) throw new Error('Format tipe tidak valid');
 
+      if (editFormData.type === 'Hibah' && !editSelectedFarmer) {
+        throw new Error('Harus memilih pembudidaya untuk penyaluran bantuan Hibah.');
+      }
+
       await updateLogisticsEntry(editingEntry.id, {
         ...editFormData,
         flow: selectedType.flow as FlowType,
         createdAt: editingEntry.createdAt,
-        padReceiptImage: editFormData.type === 'Penjualan' ? editFormData.padReceiptImage : undefined
+        padReceiptImage: (editFormData.type === 'Penjualan' || editFormData.type === 'Hibah') ? editFormData.padReceiptImage : undefined,
+        ...(editFormData.type === 'Hibah' && editSelectedFarmer ? {
+          farmerId: editSelectedFarmer.id,
+          farmerName: editSelectedFarmer.namaPenanggungjawab,
+          farmerLocation: `${editSelectedFarmer.desa}, ${editSelectedFarmer.kecamatan}`
+        } : {
+          farmerId: undefined,
+          farmerName: undefined,
+          farmerLocation: undefined
+        })
       });
 
       setEditingEntry(null);
       setEditFormData(null);
+      setEditSelectedFarmer(null);
+      setEditSearchQuery('');
     } catch (err: any) {
       setEditError(err.message || 'Gagal mengubah data');
     } finally {
@@ -191,7 +262,7 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Komoditas</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tipe</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Jumlah</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Bukti PAD</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Bukti Penerimaan/Pengeluaran</th>
                 {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>}
               </tr>
             </thead>
@@ -216,11 +287,20 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                        entry.flow === 'Masuk' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                      }`}>
-                        {entry.type}
-                      </span>
+                      <div className="flex flex-col gap-1 items-start">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                          entry.flow === 'Masuk' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                        }`}>
+                          {entry.type}
+                        </span>
+                        {entry.type === 'Hibah' && entry.farmerName && (
+                          <div className="text-[10px] text-slate-500 font-bold bg-slate-100/80 border border-slate-200/50 px-2 py-1 rounded-lg mt-1 w-max">
+                            <span className="text-blue-700">Penerima:</span>
+                            <div className="text-slate-700 font-extrabold">{entry.farmerName}</div>
+                            <div className="text-[9px] text-slate-400 font-medium">{entry.farmerLocation}</div>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="font-bold text-slate-900">{entry.quantity.toLocaleString()}</span>
@@ -232,11 +312,11 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                           type="button"
                           onClick={() => setSelectedImage(entry.padReceiptImage ?? null)}
                           className="relative group block rounded-lg overflow-hidden border border-slate-200 cursor-pointer w-10 h-10 shrink-0"
-                          title="Klik untuk memperbesar bukti setoran PAD"
+                          title="Klik untuk memperbesar bukti penerimaan/pengeluaran"
                         >
                           <img 
                             src={entry.padReceiptImage} 
-                            alt="Bukti PAD" 
+                            alt="Bukti Penerimaan/Pengeluaran" 
                             className="w-10 h-10 object-cover group-hover:scale-110 transition-transform duration-150"
                             referrerPolicy="no-referrer"
                           />
@@ -244,7 +324,7 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                             <span className="text-[9px] text-white font-extrabold uppercase p-0.5">Lihat</span>
                           </div>
                         </button>
-                      ) : entry.type === 'Penjualan' ? (
+                      ) : (entry.type === 'Penjualan' || entry.type === 'Hibah') ? (
                         <span className="text-[10px] text-slate-400 font-medium italic">Belum ada</span>
                       ) : (
                         <span className="text-slate-300">-</span>
@@ -426,7 +506,13 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                           name="editLogisticsType"
                           value={type.name}
                           checked={editFormData.type === type.name}
-                          onChange={() => setEditFormData({ ...editFormData, type: type.name })}
+                          onChange={() => {
+                            setEditFormData({ ...editFormData, type: type.name });
+                            if (type.name !== 'Hibah') {
+                              setEditSelectedFarmer(null);
+                              setEditSearchQuery('');
+                            }
+                          }}
                           className="sr-only"
                         />
                         <span className={cn(
@@ -446,12 +532,107 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                   </div>
                 </div>
 
-                {/* Upload Gambar Setoran PAD (Hanya jika tipe Penjualan di Edit Modal) */}
-                {editFormData.type === 'Penjualan' && (
+                {/* Pilih Pembudidaya (Khusus Hibah) */}
+                {editFormData.type === 'Hibah' && (
+                  <div className="md:col-span-2 space-y-1.5 border-t border-b border-slate-100 py-3.5 animate-in fade-in duration-200 text-sm">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <User className="w-4 h-4 text-blue-600" />
+                      Pencarian Pembudidaya (Penerima Hibah) <span className="text-red-500 font-bold">*</span>
+                    </label>
+
+                    <div className="relative" ref={editDropdownRef}>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          value={editSearchQuery}
+                          onChange={(e) => {
+                            setEditSearchQuery(e.target.value);
+                            setShowEditDropdown(true);
+                          }}
+                          onFocus={() => setShowEditDropdown(true)}
+                          placeholder="Ketik nama penanggungjawab atau kecamatan/desa pembudidaya..."
+                          className="w-full pl-9 pr-9 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-xs placeholder:text-slate-400"
+                          required={!editSelectedFarmer}
+                        />
+                        {(editSearchQuery || editSelectedFarmer) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditSearchQuery('');
+                              setEditSelectedFarmer(null);
+                            }}
+                            className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 transition-colors"
+                          >
+                            <X className="w-4.5 h-4.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {showEditDropdown && (
+                        <div className="absolute z-30 w-full mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                          <div className="max-h-48 overflow-y-auto divide-y divide-slate-100">
+                            {filteredFarmers.length === 0 ? (
+                              <div className="p-3 text-center text-slate-500 text-xs font-medium">
+                                Tidak ada pembudidaya yang cocok
+                              </div>
+                            ) : (
+                              filteredFarmers.map((farmer) => (
+                                <button
+                                  key={farmer.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setEditSelectedFarmer(farmer);
+                                    setEditSearchQuery(farmer.namaPenanggungjawab);
+                                    setShowEditDropdown(false);
+                                  }}
+                                  className={cn(
+                                    "w-full text-left px-4 py-2 bg-white hover:bg-slate-50/80 transition-colors flex flex-col gap-0.5",
+                                    editSelectedFarmer?.id === farmer.id ? "bg-blue-50/50" : ""
+                                  )}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                      <User className="w-3.5 h-3.5 text-slate-400" />
+                                      {farmer.namaPenanggungjawab}
+                                    </span>
+                                    <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                                      {farmer.kegiatanUsaha || 'Budidaya'}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                                    <MapPin className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                    <span>{farmer.desa}, {farmer.kecamatan}</span>
+                                  </div>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {editSelectedFarmer && (
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start gap-2.5 max-w-sm animate-in zoom-in-95 duration-150 text-xs">
+                        <div className="p-1 bg-emerald-100 text-emerald-700 rounded-lg">
+                          <Check className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800">Pembudidaya Terpilih:</p>
+                          <p className="font-semibold text-emerald-800 mt-0.5">{editSelectedFarmer.namaPenanggungjawab}</p>
+                          <p className="text-slate-500 text-[11px]">{editSelectedFarmer.desa}, {editSelectedFarmer.kecamatan}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Upload Gambar Bukti (Hanya jika tipe Penjualan atau Hibah di Edit Modal) */}
+                {(editFormData.type === 'Penjualan' || editFormData.type === 'Hibah') && (
                   <div className="md:col-span-2 space-y-1.5 border-t border-slate-100 pt-4 animate-in fade-in duration-200">
                     <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                       <ClipboardList className="w-4 h-4 text-emerald-500" />
-                      Bukti Setoran PAD <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold">Ubah Gambar</span>
+                      Bukti {editFormData.type === 'Penjualan' ? 'Setoran PAD' : 'Penerimaan/Pengeluaran'} <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono font-bold">Ubah Gambar</span>
                     </label>
 
                     {editFormData.padReceiptImage ? (
@@ -459,12 +640,12 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                         <div className="flex items-center gap-3">
                           <img 
                             src={editFormData.padReceiptImage} 
-                            alt="Bukti Setoran PAD" 
+                            alt="Bukti Penerimaan/Pengeluaran" 
                             referrerPolicy="no-referrer"
                             className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
                           />
                           <div>
-                            <p className="text-xs font-bold text-slate-700">Bukti_Setoran_PAD_Edit.jpeg</p>
+                            <p className="text-xs font-bold text-slate-700">Bukti_{editFormData.type === 'Penjualan' ? 'Setoran_PAD' : 'Penerimaan_Pengeluaran'}_Edit.jpeg</p>
                             <p className="text-[9px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
                               <Check className="w-3.5 h-3.5 text-emerald-500" /> Tersimpan / Siap diubah
                             </p>
@@ -557,13 +738,13 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
             <div className="overflow-hidden rounded-2xl bg-slate-100 flex items-center justify-center min-h-[200px]">
               <img 
                 src={selectedImage} 
-                alt="Bukti Setoran PAD Terbuka" 
+                alt="Bukti Penerimaan/Pengeluaran Terbuka" 
                 className="max-h-[70vh] w-auto max-w-full object-contain pointer-events-none rounded-xl"
                 referrerPolicy="no-referrer"
               />
             </div>
             <div className="text-center py-2.5">
-              <p className="text-xs font-bold text-slate-700">Bukti Setoran PAD Resmi (BBI)</p>
+              <p className="text-xs font-bold text-slate-700">Bukti Penerimaan/Pengeluaran Resmi (BBI)</p>
             </div>
           </div>
         </div>

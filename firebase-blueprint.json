@@ -14,6 +14,9 @@
         "quantity": { "type": "number" },
         "unit": { "type": "string", "enum": ["ekor", "kg"] },
         "padReceiptImage": { "type": "string", "description": "Base64 encoded image of PAD deposit/receipt (only for Sales flow)." },
+        "farmerId": { "type": "string", "description": "Associated farmer ID for Hibah flow." },
+        "farmerName": { "type": "string", "description": "Associated farmer name for Hibah flow." },
+        "farmerLocation": { "type": "string", "description": "Associated farmer destination location for Hibah flow." },
         "createdAt": { "type": "number" },
         "userId": { "type": "string" }
       },

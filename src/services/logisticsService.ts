@@ -6,7 +6,8 @@ import {
   onSnapshot, 
   deleteDoc, 
   doc,
-  updateDoc
+  updateDoc,
+  deleteField
 } from 'firebase/firestore';
 import { db, auth, OperationType, handleFirestoreError } from '../firebase';
 import { LogisticsEntry } from '../types';
@@ -14,12 +15,35 @@ import { getTargetUserId, getClientUserRole } from './userService';
 
 const COLLECTION_NAME = 'logistics';
 
+const cleanAddData = (data: any) => {
+  const cleaned: any = {};
+  for (const key in data) {
+    if (data[key] !== undefined) {
+      cleaned[key] = data[key];
+    }
+  }
+  return cleaned;
+};
+
+const cleanUpdateData = (data: any) => {
+  const cleaned: any = {};
+  for (const key in data) {
+    if (data[key] === undefined) {
+      cleaned[key] = deleteField();
+    } else {
+      cleaned[key] = data[key];
+    }
+  }
+  return cleaned;
+};
+
 export const addLogisticsEntry = async (entry: Omit<LogisticsEntry, 'id' | 'userId'>) => {
   try {
-    const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+    const dataToSend = cleanAddData({
       ...entry,
       userId: getTargetUserId(),
     });
+    const docRef = await addDoc(collection(db, COLLECTION_NAME), dataToSend);
     return docRef.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, COLLECTION_NAME);
@@ -29,10 +53,11 @@ export const addLogisticsEntry = async (entry: Omit<LogisticsEntry, 'id' | 'user
 export const updateLogisticsEntry = async (id: string, entry: Omit<LogisticsEntry, 'id' | 'userId'>) => {
   try {
     const docRef = doc(db, COLLECTION_NAME, id);
-    await updateDoc(docRef, {
+    const dataToUpdate = cleanUpdateData({
       ...entry,
       userId: getTargetUserId(),
     });
+    await updateDoc(docRef, dataToUpdate);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_NAME}/${id}`);
   }

@@ -39,7 +39,10 @@ service cloud.firestore {
              data.unit in ['ekor', 'kg'] &&
              data.createdAt is number &&
              ((request.auth != null && data.userId == request.auth.uid) || (request.auth == null && data.userId == 'guest_bbi_user') || isAdmin()) &&
-             (!('padReceiptImage' in data) || data.padReceiptImage is string);
+             (!('padReceiptImage' in data) || data.padReceiptImage is string) &&
+             (!('farmerId' in data) || data.farmerId is string) &&
+             (!('farmerName' in data) || data.farmerName is string) &&
+             (!('farmerLocation' in data) || data.farmerLocation is string);
     }
 
     function isValidFarmer(data) {

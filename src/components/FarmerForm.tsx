@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { addFarmer } from '../services/farmerService';
-import { Save, Loader2, AlertCircle, MapPin, Download, Upload, X, Check, Sparkles } from 'lucide-react';
+import { Save, Loader2, AlertCircle, MapPin, Download, Upload, X, Check, Sparkles, Camera, User, Image } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { KECAMATAN, KECAMATAN_DESA, KEGIATAN_USAHA, KLASIFIKASI_KOLAM, STATUS_KEPEMILIKAN, STATUS_PROFESI, BENTUK_USAHA, TEKNOLOGI_BUDIDAYA, Farmer } from '../types';
 import * as XLSX from 'xlsx';
@@ -30,8 +30,68 @@ export default function FarmerForm() {
     omzet: 0,
     alamat: '',
     latitude: -6.301873,
-    longitude: 107.304801
+    longitude: 107.304801,
+    photoUrl: ''
   });
+
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('File harus berupa gambar (.jpg, .jpeg, .png)');
+      return;
+    }
+
+    setPhotoError(null);
+    setIsCompressingPhoto(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 450;
+        const MAX_HEIGHT = 450;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+          setFormData(prev => ({ ...prev, photoUrl: compressedBase64 }));
+        }
+        setIsCompressingPhoto(false);
+      };
+      img.onerror = () => {
+        setPhotoError('Gagal memproses gambar');
+        setIsCompressingPhoto(false);
+      };
+      if (evt.target?.result) {
+        img.src = evt.target.result as string;
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Excel import state
   const [importing, setImporting] = useState(false);
@@ -56,8 +116,13 @@ export default function FarmerForm() {
     setSuccess(false);
 
     try {
+      const submitData = { ...formData };
+      if (!submitData.photoUrl) {
+         delete (submitData as any).photoUrl;
+      }
+
       await addFarmer({
-        ...formData,
+        ...submitData,
         createdAt: Date.now()
       });
 
@@ -80,7 +145,8 @@ export default function FarmerForm() {
         omzet: 0,
         alamat: '',
         latitude: -6.301873,
-        longitude: 107.304801
+        longitude: 107.304801,
+        photoUrl: ''
       });
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: any) {
@@ -461,192 +527,259 @@ export default function FarmerForm() {
         {/* Input Manual View */}
         {activeMode === 'manual' && (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Kecamatan</label>
-                <select
-                  value={formData.kecamatan}
-                  onChange={(e) => handleKecamatanChange(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                >
-                  <option value="">Pilih Kecamatan</option>
-                  {KECAMATAN.map((k) => (
-                    <option key={k} value={k}>{k}</option>
-                  ))}
-                </select>
+            <div className="flex flex-col lg:flex-row gap-6">
+              {/* Left Side: Form Fields Grid */}
+              <div className="flex-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Kecamatan</label>
+                    <select
+                      value={formData.kecamatan}
+                      onChange={(e) => handleKecamatanChange(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    >
+                      <option value="">Pilih Kecamatan</option>
+                      {KECAMATAN.map((k) => (
+                        <option key={k} value={k}>{k}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Desa/Kelurahan</label>
+                    <select
+                      value={formData.desa}
+                      onChange={(e) => setFormData({ ...formData, desa: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                      disabled={!formData.kecamatan}
+                    >
+                      <option value="">Pilih Desa/Kelurahan</option>
+                      {formData.kecamatan && KECAMATAN_DESA[formData.kecamatan]?.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <InputGroup label="Nama Penanggungjawab" value={formData.namaPenanggungjawab} onChange={v => setFormData({...formData, namaPenanggungjawab: v})} />
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Kegiatan Usaha</label>
+                    <select
+                      value={formData.kegiatanUsaha}
+                      onChange={(e) => setFormData({ ...formData, kegiatanUsaha: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    >
+                      <option value="">Pilih Kegiatan Usaha</option>
+                      {KEGIATAN_USAHA.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <InputGroup label="Email" type="email" value={formData.email} onChange={v => setFormData({...formData, email: v})} />
+                  <InputGroup label="Telephone" value={formData.telephone} onChange={v => setFormData({...formData, telephone: v})} />
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Klasifikasi Kolam</label>
+                    <select
+                      value={formData.klasifikasiKolam}
+                      onChange={(e) => setFormData({ ...formData, klasifikasiKolam: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    >
+                      <option value="">Pilih Klasifikasi Kolam</option>
+                      {KLASIFIKASI_KOLAM.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Teknologi Budidaya</label>
+                    <select
+                      value={formData.teknologiBudidaya}
+                      onChange={(e) => setFormData({ ...formData, teknologiBudidaya: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    >
+                      <option value="">Pilih Teknologi Budidaya</option>
+                      {TEKNOLOGI_BUDIDAYA.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Bentuk Usaha</label>
+                    <select
+                      value={formData.bentukUsaha}
+                      onChange={(e) => setFormData({ ...formData, bentukUsaha: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    >
+                      <option value="">Pilih Bentuk Usaha</option>
+                      {BENTUK_USAHA.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Status Profesi</label>
+                    <select
+                      value={formData.statusProfesi}
+                      onChange={(e) => setFormData({ ...formData, statusProfesi: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    >
+                      <option value="">Pilih Status Profesi</option>
+                      {STATUS_PROFESI.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Status Kepemilikan</label>
+                    <select
+                      value={formData.statusKepemilikan}
+                      onChange={(e) => setFormData({ ...formData, statusKepemilikan: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    >
+                      <option value="">Pilih Status Kepemilikan</option>
+                      {STATUS_KEPEMILIKAN.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <InputGroup label="Periode Sewa" value={formData.periodeSewa} onChange={v => setFormData({...formData, periodeSewa: v})} />
+                  <InputGroup label="Jenis Ikan Utama" value={formData.jenisIkanUtama} onChange={v => setFormData({...formData, jenisIkanUtama: v})} />
+                  <InputGroup label="Jenis Ikan Tambahan" value={formData.jenisIkanTambahan} onChange={v => setFormData({...formData, jenisIkanTambahan: v})} />
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Omzet (per Tahun)</label>
+                    <input
+                      type="number"
+                      value={formData.omzet || ''}
+                      onChange={(e) => setFormData({ ...formData, omzet: parseFloat(e.target.value) || 0 })}
+                      placeholder="Contoh: 50000000"
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    />
+                  </div>
+                  
+                  <div className="md:col-span-2 lg:col-span-3 space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Alamat</label>
+                    <textarea
+                      value={formData.alamat}
+                      onChange={(e) => setFormData({ ...formData, alamat: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none min-h-[80px]"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Latitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={formData.latitude || ''}
+                      onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Longitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={formData.longitude || ''}
+                      onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={getCurrentLocation}
+                      className="w-full px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 border border-slate-200 text-sm"
+                    >
+                      <MapPin className="w-4 h-4 text-slate-500" />
+                      Ambil Lokasi Saat Ini
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Desa/Kelurahan</label>
-                <select
-                  value={formData.desa}
-                  onChange={(e) => setFormData({ ...formData, desa: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                  disabled={!formData.kecamatan}
-                >
-                  <option value="">Pilih Desa/Kelurahan</option>
-                  {formData.kecamatan && KECAMATAN_DESA[formData.kecamatan]?.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
+              {/* Right Side Column: Photo Upload Widget (Top Right) */}
+              <div className="w-full lg:w-80 lg:shrink-0 flex flex-col gap-6">
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                      <Camera className="w-4 h-4 text-blue-600" />
+                      Foto Pembudidaya
+                    </p>
+                    {formData.photoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, photoUrl: '' }))}
+                        className="text-xs text-red-600 hover:text-red-750 font-semibold flex items-center gap-1"
+                      >
+                        <X className="w-3.5 h-3.5" /> Hapus
+                      </button>
+                    )}
+                  </div>
 
-              <InputGroup label="Nama Penanggungjawab" value={formData.namaPenanggungjawab} onChange={v => setFormData({...formData, namaPenanggungjawab: v})} />
-              
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Kegiatan Usaha</label>
-                <select
-                  value={formData.kegiatanUsaha}
-                  onChange={(e) => setFormData({ ...formData, kegiatanUsaha: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                >
-                  <option value="">Pilih Kegiatan Usaha</option>
-                  {KEGIATAN_USAHA.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-
-              <InputGroup label="Email" type="email" value={formData.email} onChange={v => setFormData({...formData, email: v})} />
-              <InputGroup label="Telephone" value={formData.telephone} onChange={v => setFormData({...formData, telephone: v})} />
-              
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Klasifikasi Kolam</label>
-                <select
-                  value={formData.klasifikasiKolam}
-                  onChange={(e) => setFormData({ ...formData, klasifikasiKolam: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                >
-                  <option value="">Pilih Klasifikasi Kolam</option>
-                  {KLASIFIKASI_KOLAM.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Teknologi Budidaya</label>
-                <select
-                  value={formData.teknologiBudidaya}
-                  onChange={(e) => setFormData({ ...formData, teknologiBudidaya: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                >
-                  <option value="">Pilih Teknologi Budidaya</option>
-                  {TEKNOLOGI_BUDIDAYA.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Bentuk Usaha</label>
-                <select
-                  value={formData.bentukUsaha}
-                  onChange={(e) => setFormData({ ...formData, bentukUsaha: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                >
-                  <option value="">Pilih Bentuk Usaha</option>
-                  {BENTUK_USAHA.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Status Profesi</label>
-                <select
-                  value={formData.statusProfesi}
-                  onChange={(e) => setFormData({ ...formData, statusProfesi: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                >
-                  <option value="">Pilih Status Profesi</option>
-                  {STATUS_PROFESI.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Status Kepemilikan</label>
-                <select
-                  value={formData.statusKepemilikan}
-                  onChange={(e) => setFormData({ ...formData, statusKepemilikan: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                >
-                  <option value="">Pilih Status Kepemilikan</option>
-                  {STATUS_KEPEMILIKAN.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
-              </div>
-
-              <InputGroup label="Periode Sewa" value={formData.periodeSewa} onChange={v => setFormData({...formData, periodeSewa: v})} />
-              <InputGroup label="Jenis Ikan Utama" value={formData.jenisIkanUtama} onChange={v => setFormData({...formData, jenisIkanUtama: v})} />
-              <InputGroup label="Jenis Ikan Tambahan" value={formData.jenisIkanTambahan} onChange={v => setFormData({...formData, jenisIkanTambahan: v})} />
-              
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Omzet (per Tahun)</label>
-                <input
-                  type="number"
-                  value={formData.omzet || ''}
-                  onChange={(e) => setFormData({ ...formData, omzet: parseFloat(e.target.value) || 0 })}
-                  placeholder="Contoh: 50000000"
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                />
-              </div>
-              
-              <div className="md:col-span-2 lg:col-span-3 space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Alamat</label>
-                <textarea
-                  value={formData.alamat}
-                  onChange={(e) => setFormData({ ...formData, alamat: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none min-h-[80px]"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Latitude</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={formData.latitude || ''}
-                  onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Longitude</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={formData.longitude || ''}
-                  onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-slate-700"
-                  required
-                />
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={getCurrentLocation}
-                  className="w-full px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 border border-slate-200 text-sm"
-                >
-                  <MapPin className="w-4 h-4 text-slate-500" />
-                  Ambil Lokasi Saat Ini
-                </button>
+                  <div className="relative border-2 border-dashed border-slate-200 hover:border-blue-400 bg-white rounded-2xl p-6 transition-all text-center flex flex-col items-center justify-center min-h-[220px] overflow-hidden group">
+                    {isCompressingPhoto ? (
+                      <div className="flex flex-col items-center gap-2 py-4">
+                        <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                        <p className="text-xs text-slate-500 font-semibold font-mono">Mengompres gambar...</p>
+                      </div>
+                    ) : formData.photoUrl ? (
+                      <div className="relative w-full h-full flex flex-col items-center justify-center">
+                        <img 
+                          src={formData.photoUrl} 
+                          alt="Pas Foto Pembudidaya" 
+                          referrerPolicy="no-referrer"
+                          className="w-32 h-32 rounded-full object-cover border-4 border-slate-100 shadow-md transition-transform group-hover:scale-105 duration-200"
+                        />
+                        <p className="text-xs font-bold text-slate-700 mt-4">Foto terpilih</p>
+                        <p className="text-[10px] text-emerald-600 font-semibold flex items-center justify-center gap-1 mt-0.5">
+                          <Check className="w-3.5 h-3.5 text-emerald-500" /> Siap diunggah
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-4 cursor-pointer w-full h-full relative">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handlePhotoUpload}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        />
+                        <div className="p-3 bg-blue-50 text-blue-600 rounded-full mb-3 group-hover:scale-110 transition-transform duration-150">
+                          <Camera className="w-6 h-6" />
+                        </div>
+                        <p className="text-xs font-bold text-slate-700">Pilih atau Seret Foto</p>
+                        <p className="text-[10px] text-slate-400 mt-1">Mendukung format PNG, JPG, JPEG</p>
+                      </div>
+                    )}
+                  </div>
+                  {photoError && (
+                    <p className="text-xs font-medium text-red-600 text-center animate-in fade-in duration-150">
+                      {photoError}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 

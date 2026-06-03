@@ -12,7 +12,7 @@ import {
 } from '../types';
 import { deleteFarmer, updateFarmer } from '../services/farmerService';
 import { getClientUserRole } from '../services/userService';
-import { Trash2, Edit2, X, Check, Search, Filter, Save, Loader2, MapPin } from 'lucide-react';
+import { Trash2, Edit2, X, Check, Search, Filter, Save, Loader2, MapPin, User, Camera } from 'lucide-react';
 
 interface FarmerListProps {
   farmers: Farmer[];
@@ -30,6 +30,67 @@ export default function FarmerList({ farmers }: FarmerListProps) {
   const [editFormData, setEditFormData] = useState<any>(null);
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Photo editing & view overlay states
+  const [editPhotoError, setEditPhotoError] = useState<string | null>(null);
+  const [isCompressingEditPhoto, setIsCompressingEditPhoto] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+
+  const handleEditPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setEditPhotoError('File harus berupa gambar (.jpg, .jpeg, .png)');
+      return;
+    }
+
+    setEditPhotoError(null);
+    setIsCompressingEditPhoto(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 450;
+        const MAX_HEIGHT = 450;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+          setEditFormData((prev: any) => ({ ...prev, photoUrl: compressedBase64 }));
+        }
+        setIsCompressingEditPhoto(false);
+      };
+      img.onerror = () => {
+        setEditPhotoError('Gagal memproses gambar');
+        setIsCompressingEditPhoto(false);
+      };
+      if (evt.target?.result) {
+        img.src = evt.target.result as string;
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const startEdit = (farmer: Farmer) => {
     setEditingFarmer(farmer);
@@ -188,7 +249,23 @@ export default function FarmerList({ farmers }: FarmerListProps) {
                 filteredFarmers.map((farmer) => (
                   <tr key={farmer.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <span className="font-semibold text-slate-800">{farmer.namaPenanggungjawab}</span>
+                      <div className="flex items-center gap-3">
+                        {farmer.photoUrl ? (
+                          <img 
+                            src={farmer.photoUrl} 
+                            alt={farmer.namaPenanggungjawab} 
+                            referrerPolicy="no-referrer"
+                            onClick={() => setSelectedPhoto(farmer.photoUrl)}
+                            className="w-10 h-10 rounded-full object-cover border border-slate-200 shadow-xs cursor-pointer hover:scale-110 active:scale-95 transition-transform"
+                            title="Klik untuk memperbesar"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 shrink-0">
+                            <User className="w-5 h-5 text-slate-400" />
+                          </div>
+                        )}
+                        <span className="font-semibold text-slate-800">{farmer.namaPenanggungjawab}</span>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
@@ -303,7 +380,10 @@ export default function FarmerList({ farmers }: FarmerListProps) {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="flex flex-col lg:flex-row gap-6">
+                  {/* Left Column: Form Fields Grid */}
+                  <div className="flex-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <label className="text-sm font-semibold text-slate-700">Kecamatan</label>
                     <select
@@ -555,6 +635,70 @@ export default function FarmerList({ farmers }: FarmerListProps) {
                 </div>
               </div>
 
+              {/* Right Column: Photo Editor Widget */}
+              <div className="w-full lg:w-72 lg:shrink-0 flex flex-col gap-6">
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Camera className="w-3.5 h-3.5 text-blue-600" />
+                      Foto Pembudidaya
+                    </p>
+                    {editFormData.photoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setEditFormData((prev: any) => ({ ...prev, photoUrl: '' }))}
+                        className="text-[11px] text-red-600 hover:text-red-750 font-semibold flex items-center gap-0.5"
+                      >
+                        <X className="w-3 h-3" /> Hapus
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative border-2 border-dashed border-slate-200 hover:border-blue-400 bg-white rounded-2xl p-5 transition-all text-center flex flex-col items-center justify-center min-h-[220px] overflow-hidden group">
+                    {isCompressingEditPhoto ? (
+                      <div className="flex flex-col items-center gap-2 py-4">
+                        <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                        <p className="text-[10px] text-slate-500 font-semibold font-mono">Mengompres...</p>
+                      </div>
+                    ) : editFormData.photoUrl ? (
+                      <div className="relative w-full h-full flex flex-col items-center justify-center">
+                        <img 
+                          src={editFormData.photoUrl} 
+                          alt="Pas Foto Pembudidaya" 
+                          referrerPolicy="no-referrer"
+                          className="w-24 h-24 rounded-full object-cover border-4 border-slate-100 shadow-md transition-transform group-hover:scale-105 duration-200"
+                        />
+                        <p className="text-[11px] font-bold text-slate-700 mt-3">Foto terpilih</p>
+                        <p className="text-[9px] text-emerald-600 font-semibold flex items-center justify-center gap-0.5 mt-0.5">
+                          <Check className="w-3 h-3 text-emerald-500" /> Siap diunggah
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-4 cursor-pointer w-full h-full relative">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleEditPhotoUpload}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        />
+                        <div className="p-2.5 bg-blue-50 text-blue-600 rounded-full mb-2 group-hover:scale-110 transition-transform duration-150">
+                          <Camera className="w-5 h-5" />
+                        </div>
+                        <p className="text-xs font-bold text-slate-700">Pilih Foto</p>
+                        <p className="text-[9px] text-slate-400 mt-0.5">Mendukung PNG/JPG</p>
+                      </div>
+                    )}
+                  </div>
+                  {editPhotoError && (
+                    <p className="text-xs font-medium text-red-600 text-center animate-in fade-in duration-150">
+                      {editPhotoError}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
               {/* Modal Footer */}
               <div className="p-6 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row items-center justify-end gap-3 shrink-0">
                 <button
@@ -574,6 +718,29 @@ export default function FarmerList({ farmers }: FarmerListProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Zoomed Photo Viewer Modal */}
+      {selectedPhoto && (
+        <div 
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-200"
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <div className="relative max-w-3xl w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setSelectedPhoto(null)}
+              className="absolute -top-12 right-0 p-2 text-white bg-slate-800/80 hover:bg-slate-750 rounded-full border border-slate-700 hover:scale-110 transition-all focus:outline-none"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img 
+              src={selectedPhoto} 
+              alt="Foto Pembudidaya" 
+              referrerPolicy="no-referrer"
+              className="max-h-[80vh] w-auto max-w-full rounded-2xl shadow-2xl object-contain border border-slate-800"
+            />
           </div>
         </div>
       )}
