@@ -15,9 +15,27 @@ import {
 import { deleteLogisticsEntry, updateLogisticsEntry } from '../services/logisticsService';
 import { subscribeToFarmers } from '../services/farmerService';
 import { getClientUserRole } from '../services/userService';
-import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save, Upload, ClipboardList, Search, User, MapPin } from 'lucide-react';
+import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save, Upload, ClipboardList, Search, User, MapPin, ArrowUpDown, ChevronUp, ChevronDown, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
+
+// Helper function to get week of year from local date
+const getWeekOfYear = (dateString: string): string => {
+  if (!dateString) return "Minggu ke 1";
+  const parts = dateString.split('-');
+  if (parts.length !== 3) return "Minggu ke 1";
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1; // 0-indexed
+  const day = parseInt(parts[2], 10);
+  
+  const d = new Date(year, month, day);
+  if (isNaN(d.getTime())) return "Minggu ke 1";
+  const oneJan = new Date(d.getFullYear(), 0, 1);
+  const numberOfDays = Math.floor((d.getTime() - oneJan.getTime()) / (24 * 60 * 60 * 1000));
+  const week = Math.ceil((numberOfDays + oneJan.getDay() + 1) / 7);
+  const clampedWeek = Math.min(Math.max(week, 1), 52);
+  return `Minggu ke ${clampedWeek}`;
+};
 
 interface HistoryTableProps {
   entries: LogisticsEntry[];
@@ -28,8 +46,17 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<LogisticsEntry | null>(null);
   const [editFormData, setEditFormData] = useState<Omit<LogisticsEntry, 'id' | 'userId' | 'createdAt'> | null>(null);
+  const [editInputDate, setEditInputDate] = useState<string>('');
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Sync edited week when editInputDate changes
+  useEffect(() => {
+    if (editInputDate) {
+      const computedWeek = getWeekOfYear(editInputDate);
+      setEditFormData(prev => prev ? { ...prev, month: computedWeek } : null);
+    }
+  }, [editInputDate]);
 
   // Image zoom/lightbox state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -37,6 +64,41 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
   // Edit image states
   const [isCompressingEdit, setIsCompressingEdit] = useState(false);
   const [editImageError, setEditImageError] = useState<string | null>(null);
+
+  // Sorting states
+  const [sortField, setSortField] = useState<'month' | 'location' | 'commodity' | 'type' | 'quantity'>('month');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // Helper to parse week number from week string e.g. "Minggu ke 12" -> 12
+  const getWeekNumber = (weekStr: string): number => {
+    const match = weekStr.match(/\d+/);
+    return match ? parseInt(match[0], 10) : 0;
+  };
+
+  const handleSort = (field: 'month' | 'location' | 'commodity' | 'type' | 'quantity') => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedEntries = [...entries].sort((a, b) => {
+    let comparison = 0;
+    if (sortField === 'month') {
+      comparison = getWeekNumber(a.month) - getWeekNumber(b.month);
+    } else if (sortField === 'quantity') {
+      comparison = a.quantity - b.quantity;
+    } else if (sortField === 'location') {
+      comparison = a.location.localeCompare(b.location);
+    } else if (sortField === 'commodity') {
+      comparison = a.commodity.localeCompare(b.commodity);
+    } else if (sortField === 'type') {
+      comparison = a.type.localeCompare(b.type);
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
 
   // State for farmer list and edit selection
   const [farmers, setFarmers] = useState<Farmer[]>([]);
@@ -73,6 +135,11 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
 
   const startEdit = (entry: LogisticsEntry) => {
     setEditingEntry(entry);
+    const entryDate = new Date(entry.createdAt);
+    const yyyy = entryDate.getFullYear();
+    const mm = String(entryDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(entryDate.getDate()).padStart(2, '0');
+    setEditInputDate(`${yyyy}-${mm}-${dd}`);
     setEditFormData({
       location: entry.location,
       commodity: entry.commodity,
@@ -113,8 +180,30 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.type === 'application/pdf') {
+      if (file.size > 2 * 1024 * 1024) {
+        setEditImageError('Ukuran file PDF tidak boleh lebih dari 2MB.');
+        return;
+      }
+      setEditImageError(null);
+      setIsCompressingEdit(true);
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (evt.target?.result && editFormData) {
+          setEditFormData({ ...editFormData, padReceiptImage: evt.target.result as string });
+        }
+        setIsCompressingEdit(false);
+      };
+      reader.onerror = () => {
+        setEditImageError('Gagal membaca file PDF');
+        setIsCompressingEdit(false);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
     if (!file.type.startsWith('image/')) {
-      setEditImageError('File harus berupa gambar (.jpg, .jpeg, .png)');
+      setEditImageError('File harus berupa gambar (.jpg, .jpeg, .png) atau PDF');
       return;
     }
 
@@ -188,7 +277,14 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
       await updateLogisticsEntry(editingEntry.id, {
         ...editFormData,
         flow: selectedType.flow as FlowType,
-        createdAt: editingEntry.createdAt,
+        createdAt: (() => {
+          const parts = editInputDate.split('-');
+          const year = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const day = parseInt(parts[2], 10);
+          const originalTime = new Date(editingEntry.createdAt);
+          return new Date(year, month, day, originalTime.getHours(), originalTime.getMinutes(), originalTime.getSeconds(), originalTime.getMilliseconds()).getTime();
+        })(),
         padReceiptImage: (editFormData.type === 'Penjualan' || editFormData.type === 'Hibah') ? editFormData.padReceiptImage : undefined,
         ...(editFormData.type === 'Hibah' && editSelectedFarmer ? {
           farmerId: editSelectedFarmer.id,
@@ -213,7 +309,7 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
   };
 
   const exportToExcel = () => {
-    const worksheet = XLSX.utils.json_to_sheet(entries.map(e => ({
+    const worksheet = XLSX.utils.json_to_sheet(sortedEntries.map(e => ({
       'Tanggal Input': new Date(e.createdAt).toLocaleDateString('id-ID'),
       'Lokasi': e.location,
       'Komoditas': e.commodity,
@@ -257,24 +353,84 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
           <table className="w-full text-left border-collapse">
              <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Minggu</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Lokasi</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Komoditas</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Tipe</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Jumlah</th>
+                <th 
+                  onClick={() => handleSort('month')}
+                  className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100/50 transition-colors select-none group"
+                >
+                  <div className="flex items-center gap-1">
+                    Minggu
+                    {sortField === 'month' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 font-bold" /> : <ChevronDown className="w-3.5 h-3.5 text-blue-600 font-bold" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort('location')}
+                  className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100/50 transition-colors select-none group"
+                >
+                  <div className="flex items-center gap-1">
+                    Lokasi
+                    {sortField === 'location' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 font-bold" /> : <ChevronDown className="w-3.5 h-3.5 text-blue-600 font-bold" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort('commodity')}
+                  className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100/50 transition-colors select-none group"
+                >
+                  <div className="flex items-center gap-1">
+                    Komoditas
+                    {sortField === 'commodity' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 font-bold" /> : <ChevronDown className="w-3.5 h-3.5 text-blue-600 font-bold" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort('type')}
+                  className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100/50 transition-colors select-none group"
+                >
+                  <div className="flex items-center gap-1">
+                    Tipe
+                    {sortField === 'type' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 font-bold" /> : <ChevronDown className="w-3.5 h-3.5 text-blue-600 font-bold" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort('quantity')}
+                  className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100/50 transition-colors select-none group"
+                >
+                  <div className="flex items-center gap-1">
+                    Jumlah
+                    {sortField === 'quantity' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 font-bold" /> : <ChevronDown className="w-3.5 h-3.5 text-blue-600 font-bold" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                    )}
+                  </div>
+                </th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Bukti Penerimaan/Pengeluaran</th>
                 {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {entries.length === 0 ? (
+              {sortedEntries.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 7 : 6} className="px-6 py-12 text-center text-slate-400 italic">
                     Belum ada data tercatat.
                   </td>
                 </tr>
               ) : (
-                entries.map((entry) => (
+                sortedEntries.map((entry) => (
                   <tr key={entry.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
                       <span className="font-semibold text-slate-700">{entry.month}</span>
@@ -308,22 +464,36 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                     </td>
                     <td className="px-6 py-4">
                       {entry.padReceiptImage ? (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedImage(entry.padReceiptImage ?? null)}
-                          className="relative group block rounded-lg overflow-hidden border border-slate-200 cursor-pointer w-10 h-10 shrink-0"
-                          title="Klik untuk memperbesar bukti penerimaan/pengeluaran"
-                        >
-                          <img 
-                            src={entry.padReceiptImage} 
-                            alt="Bukti Penerimaan/Pengeluaran" 
-                            className="w-10 h-10 object-cover group-hover:scale-110 transition-transform duration-150"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                            <span className="text-[9px] text-white font-extrabold uppercase p-0.5">Lihat</span>
-                          </div>
-                        </button>
+                        entry.padReceiptImage.startsWith('data:application/pdf') ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedImage(entry.padReceiptImage ?? null)}
+                            className="relative group block rounded-lg overflow-hidden border border-slate-200 cursor-pointer w-10 h-10 shrink-0 bg-red-50 hover:bg-red-100 transition-colors flex items-center justify-center font-mono font-bold text-[9px] text-red-600"
+                            title="Klik untuk melihat/mengunduh dokumen PDF"
+                          >
+                            PDF
+                            <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                              <span className="text-[8px] text-white font-extrabold uppercase p-0.5">Buka</span>
+                            </div>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedImage(entry.padReceiptImage ?? null)}
+                            className="relative group block rounded-lg overflow-hidden border border-slate-200 cursor-pointer w-10 h-10 shrink-0"
+                            title="Klik untuk memperbesar bukti penerimaan/pengeluaran"
+                          >
+                            <img 
+                              src={entry.padReceiptImage} 
+                              alt="Bukti Penerimaan/Pengeluaran" 
+                              className="w-10 h-10 object-cover group-hover:scale-110 transition-transform duration-150"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                              <span className="text-[9px] text-white font-extrabold uppercase p-0.5">Lihat</span>
+                            </div>
+                          </button>
+                        )
                       ) : (entry.type === 'Penjualan' || entry.type === 'Hibah') ? (
                         <span className="text-[10px] text-slate-400 font-medium italic">Belum ada</span>
                       ) : (
@@ -452,16 +622,36 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                   </div>
                 </div>
 
+                {/* Tanggal Input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                    Tanggal Input
+                  </label>
+                  <input
+                    type="date"
+                    value={editInputDate}
+                    onChange={(e) => setEditInputDate(e.target.value)}
+                    className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-sm"
+                    required
+                  />
+                </div>
+
                 {/* Minggu */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Minggu</label>
-                  <select
-                    value={editFormData.month}
-                    onChange={(e) => setEditFormData({ ...editFormData, month: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-sm"
-                  >
-                    {WEEKS.map(w => <option key={w} value={w}>{w}</option>)}
-                  </select>
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Minggu (Periode)</label>
+                  <div className="relative">
+                    <select
+                      disabled
+                      value={editFormData.month}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 font-semibold cursor-not-allowed outline-none appearance-none text-sm"
+                    >
+                      {WEEKS.map(w => <option key={w} value={w}>{w}</option>)}
+                    </select>
+                    <span className="absolute right-3 top-2.5 text-[9px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                      Otomatis
+                    </span>
+                  </div>
                 </div>
 
                 {/* Volume & Satuan */}
@@ -638,16 +828,25 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                     {editFormData.padReceiptImage ? (
                       <div className="relative rounded-2xl border border-slate-200 p-3 bg-slate-50 flex items-center justify-between gap-4 max-w-md">
                         <div className="flex items-center gap-3">
-                          <img 
-                            src={editFormData.padReceiptImage} 
-                            alt="Bukti Penerimaan/Pengeluaran" 
-                            referrerPolicy="no-referrer"
-                            className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
-                          />
+                          {editFormData.padReceiptImage.startsWith('data:application/pdf') ? (
+                            <div className="w-16 h-16 rounded-xl border border-slate-200 bg-red-50 text-red-600 flex flex-col items-center justify-center font-mono font-bold text-[10px]">
+                              <span className="text-sm font-extrabold text-red-700">PDF</span>
+                              <span>Dokumen</span>
+                            </div>
+                          ) : (
+                            <img 
+                              src={editFormData.padReceiptImage} 
+                              alt="Bukti Penerimaan/Pengeluaran" 
+                              referrerPolicy="no-referrer"
+                              className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
+                            />
+                          )}
                           <div>
-                            <p className="text-xs font-bold text-slate-700">Bukti_{editFormData.type === 'Penjualan' ? 'Setoran_PAD' : 'Penerimaan_Pengeluaran'}_Edit.jpeg</p>
+                            <p className="text-xs font-bold text-slate-700">
+                              Bukti_{editFormData.type === 'Penjualan' ? 'Setoran_PAD' : 'Penerimaan_Pengeluaran'}_Edit.{editFormData.padReceiptImage.startsWith('data:application/pdf') ? 'pdf' : 'jpeg'}
+                            </p>
                             <p className="text-[9px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
-                              <Check className="w-3.5 h-3.5 text-emerald-500" /> Tersimpan / Siap diubah
+                              <Check className="w-3.5 h-3.5 text-emerald-500" /> Tersimpan / Siap diunggah {editFormData.padReceiptImage.startsWith('data:application/pdf') ? '(PDF)' : '(Terkompresi)'}
                             </p>
                           </div>
                         </div>
@@ -664,7 +863,7 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                       <div className="relative border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/10 rounded-2xl p-5 text-center transition-all cursor-pointer group max-w-md">
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/*,application/pdf"
                           onChange={handleEditImageUpload}
                           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                           disabled={isCompressingEdit}
@@ -678,8 +877,8 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                             )}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-700 text-xs">Pilih atau Seret Foto Baru</p>
-                            <p className="text-[9px] text-slate-400 mt-0.5">Mendukung .png, .jpg, .jpeg</p>
+                            <p className="font-bold text-slate-700 text-xs">Pilih atau Seret Foto/Dokumen Baru</p>
+                            <p className="text-[9px] text-slate-400 mt-0.5">Mendukung .png, .jpg, .jpeg, .pdf</p>
                           </div>
                         </div>
                       </div>
@@ -735,13 +934,32 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
             >
               <X className="w-5 h-5" />
             </button>
-            <div className="overflow-hidden rounded-2xl bg-slate-100 flex items-center justify-center min-h-[200px]">
-              <img 
-                src={selectedImage} 
-                alt="Bukti Penerimaan/Pengeluaran Terbuka" 
-                className="max-h-[70vh] w-auto max-w-full object-contain pointer-events-none rounded-xl"
-                referrerPolicy="no-referrer"
-              />
+            <div className="overflow-hidden rounded-2xl bg-slate-100 flex items-center justify-center min-h-[200px] w-full">
+              {selectedImage.startsWith('data:application/pdf') ? (
+                <div className="w-full flex flex-col gap-3">
+                  <iframe 
+                    src={selectedImage} 
+                    className="w-full h-[50vh] rounded-xl border border-slate-200 bg-white"
+                    title="Pratinjau PDF"
+                  />
+                  <div className="flex gap-2 justify-center pb-2">
+                    <a 
+                      href={selectedImage}
+                      download="Bukti_Logistik.pdf"
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Unduh PDF
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <img 
+                  src={selectedImage} 
+                  alt="Bukti Penerimaan/Pengeluaran Terbuka" 
+                  className="max-h-[70vh] w-auto max-w-full object-contain pointer-events-none rounded-xl"
+                  referrerPolicy="no-referrer"
+                />
+              )}
             </div>
             <div className="text-center py-2.5">
               <p className="text-xs font-bold text-slate-700">Bukti Penerimaan/Pengeluaran Resmi (BBI)</p>

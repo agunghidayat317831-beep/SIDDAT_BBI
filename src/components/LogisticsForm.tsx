@@ -16,14 +16,41 @@ import {
 import { addLogisticsEntry } from '../services/logisticsService';
 import { subscribeToFarmers } from '../services/farmerService';
 import { cn } from '../lib/utils';
-import { Save, Loader2, AlertCircle, Download, Upload, Check, X, ClipboardList, Search, User, MapPin } from 'lucide-react';
+import { Save, Loader2, AlertCircle, Download, Upload, Check, X, ClipboardList, Search, User, MapPin, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
+
+// Helper function to get week of year from local date
+const getWeekOfYear = (dateString: string): string => {
+  if (!dateString) return "Minggu ke 1";
+  const parts = dateString.split('-');
+  if (parts.length !== 3) return "Minggu ke 1";
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1; // 0-indexed
+  const day = parseInt(parts[2], 10);
+  
+  const d = new Date(year, month, day);
+  if (isNaN(d.getTime())) return "Minggu ke 1";
+  const oneJan = new Date(d.getFullYear(), 0, 1);
+  const numberOfDays = Math.floor((d.getTime() - oneJan.getTime()) / (24 * 60 * 60 * 1000));
+  const week = Math.ceil((numberOfDays + oneJan.getDay() + 1) / 7);
+  const clampedWeek = Math.min(Math.max(week, 1), 52);
+  return `Minggu ke ${clampedWeek}`;
+};
 
 export default function LogisticsForm() {
   const [activeMode, setActiveMode] = useState<'manual' | 'excel'>('manual');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // Manual input date state
+  const [inputDate, setInputDate] = useState<string>(() => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  });
 
   // Manual form state
   const [formData, setFormData] = useState({
@@ -36,10 +63,58 @@ export default function LogisticsForm() {
     unit: 'ekor' as 'ekor' | 'kg'
   });
 
+  // Sync week when inputDate changes
+  useEffect(() => {
+    const computedWeek = getWeekOfYear(inputDate);
+    setFormData(prev => ({ ...prev, month: computedWeek }));
+  }, [inputDate]);
+
   // State for PAD image receipt upload
   const [padReceiptImage, setPadReceiptImage] = useState<string | null>(null);
   const [padImageError, setPadImageError] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractedAmount, setExtractedAmount] = useState<number | null>(null);
+
+  const extractTotalSetoran = async (base64Data: string) => {
+    setIsExtracting(true);
+    setPadImageError(null);
+    setExtractedAmount(null);
+    try {
+      const response = await fetch('/api/logistics/extract-pad-receipt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ padReceiptImage: base64Data }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Gagal membaca bukti setoran');
+      }
+
+      const data = await response.json();
+      if (data && typeof data.totalSetoran === 'number' && data.totalSetoran > 0) {
+        const amount = data.totalSetoran;
+        setExtractedAmount(amount);
+        
+        // Calculate quantity = amount / 50
+        const calculatedQty = Math.round(amount / 50);
+        setFormData(prev => ({
+          ...prev,
+          quantity: calculatedQty
+        }));
+      } else {
+        setPadImageError('Nominal setoran PAD tidak dapat dideteksi secara otomatis dari file ini. Silakan isi volume/jumlah secara manual.');
+      }
+    } catch (err: any) {
+      console.error('Error extracting PAD amount:', err);
+      setPadImageError('Gagal memproses otomatis: ' + (err.message || 'Error tidak diketahui') + '. Silakan isi volume/jumlah secara manual.');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
 
   // State for farmer search (khusus Hibah)
   const [farmers, setFarmers] = useState<Farmer[]>([]);
@@ -86,8 +161,34 @@ export default function LogisticsForm() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.type === 'application/pdf') {
+      if (file.size > 2 * 1024 * 1024) {
+        setPadImageError('Ukuran file PDF tidak boleh lebih dari 2MB.');
+        return;
+      }
+      setPadImageError(null);
+      setIsCompressing(true);
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (evt.target?.result) {
+          const base64Str = evt.target.result as string;
+          setPadReceiptImage(base64Str);
+          if (formData.type === 'Penjualan') {
+            extractTotalSetoran(base64Str);
+          }
+        }
+        setIsCompressing(false);
+      };
+      reader.onerror = () => {
+        setPadImageError('Gagal membaca file PDF');
+        setIsCompressing(false);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
     if (!file.type.startsWith('image/')) {
-      setPadImageError('File harus berupa gambar (.jpg, .jpeg, .png)');
+      setPadImageError('File harus berupa gambar (.jpg, .jpeg, .png) atau PDF');
       return;
     }
 
@@ -124,6 +225,9 @@ export default function LogisticsForm() {
           ctx.drawImage(img, 0, 0, width, height);
           const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
           setPadReceiptImage(compressedBase64);
+          if (formData.type === 'Penjualan') {
+            extractTotalSetoran(compressedBase64);
+          }
         }
         setIsCompressing(false);
       };
@@ -159,7 +263,14 @@ export default function LogisticsForm() {
       await addLogisticsEntry({
         ...formData,
         flow: selectedType.flow as FlowType,
-        createdAt: Date.now(),
+        createdAt: (() => {
+          const parts = inputDate.split('-');
+          const year = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const day = parseInt(parts[2], 10);
+          const now = new Date();
+          return new Date(year, month, day, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds()).getTime();
+        })(),
         ...((formData.type === 'Penjualan' || formData.type === 'Hibah') && padReceiptImage ? { padReceiptImage } : {}),
         ...(formData.type === 'Hibah' && selectedFarmer ? {
           farmerId: selectedFarmer.id,
@@ -171,6 +282,7 @@ export default function LogisticsForm() {
       setSuccess(true);
       setFormData(prev => ({ ...prev, quantity: 0 }));
       setPadReceiptImage(null);
+      setExtractedAmount(null);
       setSelectedFarmer(null);
       setSearchQuery('');
       setTimeout(() => setSuccess(false), 3000);
@@ -501,16 +613,36 @@ export default function LogisticsForm() {
                 </div>
               </div>
 
+              {/* Tanggal Input */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-blue-600" />
+                  Tanggal Input
+                </label>
+                <input
+                  type="date"
+                  value={inputDate}
+                  onChange={(e) => setInputDate(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                  required
+                />
+              </div>
+
               {/* Minggu */}
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">Waktu/Periode (Minggu)</label>
-                <select
-                  value={formData.month}
-                  onChange={(e) => setFormData({ ...formData, month: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
-                >
-                  {WEEKS.map(w => <option key={w} value={w}>{w}</option>)}
-                </select>
+                <div className="relative">
+                  <select
+                    disabled
+                    value={formData.month}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 font-semibold cursor-not-allowed outline-none appearance-none"
+                  >
+                    {WEEKS.map(w => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                  <span className="absolute right-3 top-3 text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                    Otomatis
+                  </span>
+                </div>
               </div>
 
               {/* Tipe Logistik */}
@@ -537,6 +669,9 @@ export default function LogisticsForm() {
                           if (type.name !== 'Hibah') {
                             setSelectedFarmer(null);
                             setSearchQuery('');
+                          }
+                          if (type.name === 'Penjualan' && padReceiptImage && !extractedAmount) {
+                            extractTotalSetoran(padReceiptImage);
                           }
                         }}
                         className="sr-only"
@@ -693,22 +828,34 @@ export default function LogisticsForm() {
                   {padReceiptImage ? (
                     <div className="relative rounded-2xl border border-slate-200 p-3 bg-slate-50 flex items-center justify-between gap-4 max-w-md">
                       <div className="flex items-center gap-3">
-                        <img 
-                          src={padReceiptImage} 
-                          alt="Bukti Penerimaan/Pengeluaran" 
-                          referrerPolicy="no-referrer"
-                          className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
-                        />
+                        {padReceiptImage.startsWith('data:application/pdf') ? (
+                          <div className="w-16 h-16 rounded-xl border border-slate-200 bg-red-50 text-red-600 flex flex-col items-center justify-center font-mono font-bold text-[10px]">
+                            <span className="text-sm font-extrabold text-red-700">PDF</span>
+                            <span>Dokumen</span>
+                          </div>
+                        ) : (
+                          <img 
+                            src={padReceiptImage} 
+                            alt="Bukti Penerimaan/Pengeluaran" 
+                            referrerPolicy="no-referrer"
+                            className="w-16 h-16 object-cover rounded-xl border border-slate-200 bg-white"
+                          />
+                        )}
                         <div>
-                          <p className="text-xs font-bold text-slate-700">Bukti_{formData.type === 'Penjualan' ? 'Setoran_PAD' : 'Penerimaan_Pengeluaran'}.jpeg</p>
+                          <p className="text-xs font-bold text-slate-700">
+                            Bukti_{formData.type === 'Penjualan' ? 'Setoran_PAD' : 'Penerimaan_Pengeluaran'}.{padReceiptImage.startsWith('data:application/pdf') ? 'pdf' : 'jpeg'}
+                          </p>
                           <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
-                            <Check className="w-3.5 h-3.5 text-emerald-500" /> Siap diunggah (Terkompresi)
+                            <Check className="w-3.5 h-3.5 text-emerald-500" /> Siap diunggah {padReceiptImage.startsWith('data:application/pdf') ? '(PDF)' : '(Terkompresi)'}
                           </p>
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => setPadReceiptImage(null)}
+                        onClick={() => {
+                          setPadReceiptImage(null);
+                          setExtractedAmount(null);
+                        }}
                         className="p-2 bg-white hover:bg-red-50 text-slate-400 hover:text-red-500 border border-slate-200 hover:border-red-200 rounded-xl transition-all shadow-sm cursor-pointer"
                         title="Hapus Bukti"
                       >
@@ -719,7 +866,7 @@ export default function LogisticsForm() {
                     <div className="relative border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/10 rounded-2xl p-6 text-center transition-all cursor-pointer group max-w-md">
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/*,application/pdf"
                         onChange={handleImageUpload}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         disabled={isCompressing}
@@ -733,8 +880,8 @@ export default function LogisticsForm() {
                           )}
                         </div>
                         <div>
-                          <p className="font-bold text-slate-700 text-xs">Pilih atau Seret Foto Bukti {formData.type === 'Penjualan' ? 'Setoran PAD' : 'Penerimaan/Pengeluaran'}</p>
-                          <p className="text-[10px] text-slate-400 mt-1">Mendukung format gambar (.png, .jpg, .jpeg)</p>
+                          <p className="font-bold text-slate-700 text-xs">Pilih atau Seret Bukti {formData.type === 'Penjualan' ? 'Setoran PAD' : 'Penerimaan/Pengeluaran'}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Mendukung format gambar (.png, .jpg, .jpeg) dan dokumen (.pdf)</p>
                         </div>
                       </div>
                     </div>
@@ -745,6 +892,33 @@ export default function LogisticsForm() {
                       <AlertCircle className="w-3.5 h-3.5" />
                       {padImageError}
                     </p>
+                  )}
+
+                  {isExtracting && (
+                    <div className="rounded-2xl border border-blue-200 p-4 bg-blue-50/50 flex items-center gap-3 max-w-md animate-pulse mt-2">
+                      <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                      <div className="text-xs">
+                        <p className="font-bold text-blue-800">AI sedang memproses dokumen...</p>
+                        <p className="text-blue-600 mt-0.5">Membaca nominal setoran PAD dan menghitung volume otomatis.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {extractedAmount !== null && formData.type === 'Penjualan' && !isExtracting && (
+                    <div className="rounded-2xl border border-emerald-200 p-4 bg-emerald-50/50 flex items-center gap-3 max-w-md animate-in slide-in-from-top-2 duration-200 mt-2">
+                      <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
+                        <Check className="w-4 h-4 animate-bounce" />
+                      </div>
+                      <div className="text-xs">
+                        <p className="font-bold text-emerald-800">Sistem AI Berhasil Mendeteksi:</p>
+                        <p className="text-slate-600 mt-1">
+                          Nominal Setoran PAD: <strong className="text-slate-800">Rp {extractedAmount.toLocaleString('id-ID')}</strong>
+                        </p>
+                        <p className="text-slate-600 mt-0.5">
+                          Volume dihitung (Setoran / 50): <strong className="text-emerald-700 font-bold">{formData.quantity} {formData.unit}</strong>
+                        </p>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
