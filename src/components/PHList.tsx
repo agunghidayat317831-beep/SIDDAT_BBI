@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { PHRecord } from '../types';
 import { deletePHRecord } from '../services/phService';
 import { getClientUserRole } from '../services/userService';
-import { Trash2, X, Check, Search, Droplets, Info } from 'lucide-react';
+import { Trash2, X, Check, Search, Droplets, Info, MapPin, ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface PHListProps {
@@ -14,10 +14,50 @@ export default function PHList({ records }: PHListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredRecords = records.filter(r => 
+  // Sorting & Filtering states
+  const [activeLocationTab, setActiveLocationTab] = useState<'all' | 'Cipule' | 'Mekarbuana'>('all');
+  const [sortField, setSortField] = useState<'week' | 'location' | 'phValue'>('week');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const getWeekNumber = (weekStr: string): number => {
+    const match = weekStr.match(/\d+/);
+    return match ? parseInt(match[0], 10) : 0;
+  };
+
+  const handleSort = (field: 'week' | 'location' | 'phValue') => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const countAll = records.length;
+  const countCipule = records.filter(r => r.location === 'Cipule').length;
+  const countMekarbuana = records.filter(r => r.location === 'Mekarbuana').length;
+
+  const filteredRecordsByLocation = records.filter(r => {
+    if (activeLocationTab === 'all') return true;
+    return r.location === activeLocationTab;
+  });
+
+  const filteredRecords = filteredRecordsByLocation.filter(r => 
     r.week.toLowerCase().includes(searchTerm.toLowerCase()) ||
     r.location.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const sortedRecords = [...filteredRecords].sort((a, b) => {
+    let comparison = 0;
+    if (sortField === 'week') {
+      comparison = getWeekNumber(a.week) - getWeekNumber(b.week);
+    } else if (sortField === 'phValue') {
+      comparison = a.phValue - b.phValue;
+    } else if (sortField === 'location') {
+      comparison = a.location.localeCompare(b.location);
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
 
   const handleDelete = async (id: string) => {
     try {
@@ -53,28 +93,133 @@ export default function PHList({ records }: PHListProps) {
         </div>
       </div>
 
+      {/* Tab Filter Lokasi */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200/80">
+        <div className="flex items-center gap-1 w-full sm:w-auto bg-slate-200/50 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveLocationTab('all')}
+            type="button"
+            className={cn(
+              "flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+              activeLocationTab === 'all'
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-600 hover:text-slate-900 hover:bg-white/30"
+            )}
+          >
+            <span>Semua Lokasi</span>
+            <span className={cn(
+              "px-1.5 py-0.5 rounded text-[10px] font-extrabold",
+              activeLocationTab === 'all' ? "bg-blue-50 text-blue-600" : "bg-slate-200 text-slate-500"
+            )}>
+              {countAll}
+            </span>
+          </button>
+          
+          <button
+            onClick={() => setActiveLocationTab('Cipule')}
+            type="button"
+            className={cn(
+              "flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+              activeLocationTab === 'Cipule'
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-600 hover:text-slate-900 hover:bg-white/30"
+            )}
+          >
+            <MapPin className={cn("w-3.5 h-3.5", activeLocationTab === 'Cipule' ? "text-blue-500" : "text-slate-400")} />
+            <span>BBI Cipule</span>
+            <span className={cn(
+              "px-1.5 py-0.5 rounded text-[10px] font-extrabold",
+              activeLocationTab === 'Cipule' ? "bg-blue-50 text-blue-600" : "bg-slate-200 text-slate-500"
+            )}>
+              {countCipule}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveLocationTab('Mekarbuana')}
+            type="button"
+            className={cn(
+              "flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+              activeLocationTab === 'Mekarbuana'
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-600 hover:text-slate-900 hover:bg-white/30"
+            )}
+          >
+            <MapPin className={cn("w-3.5 h-3.5", activeLocationTab === 'Mekarbuana' ? "text-blue-500" : "text-slate-400")} />
+            <span>BBI Mekarbuana</span>
+            <span className={cn(
+              "px-1.5 py-0.5 rounded text-[10px] font-extrabold",
+              activeLocationTab === 'Mekarbuana' ? "bg-blue-50 text-blue-600" : "bg-slate-200 text-slate-500"
+            )}>
+              {countMekarbuana}
+            </span>
+          </button>
+        </div>
+
+        {/* Short Summary Info */}
+        <div className="flex items-center gap-4 text-xs font-semibold text-slate-500 px-2">
+          <span>Menampilkan <strong className="text-blue-600 font-extrabold">{sortedRecords.length}</strong> dari <strong className="text-slate-700">{records.length}</strong> data</span>
+        </div>
+      </div>
+
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Minggu</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Lokasi</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Nilai pH</th>
+                <th 
+                  onClick={() => handleSort('week')}
+                  className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100/50 transition-colors select-none group"
+                >
+                  <div className="flex items-center gap-1">
+                    Minggu
+                    {sortField === 'week' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 font-bold" /> : <ChevronDown className="w-3.5 h-3.5 text-blue-600 font-bold" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort('location')}
+                  className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100/50 transition-colors select-none group"
+                >
+                  <div className="flex items-center gap-1">
+                    Lokasi
+                    {sortField === 'location' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 font-bold" /> : <ChevronDown className="w-3.5 h-3.5 text-blue-600 font-bold" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort('phValue')}
+                  className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100/50 transition-colors select-none group"
+                >
+                  <div className="flex items-center gap-1">
+                    Nilai pH
+                    {sortField === 'phValue' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-blue-600 font-bold" /> : <ChevronDown className="w-3.5 h-3.5 text-blue-600 font-bold" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                    )}
+                  </div>
+                </th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Keterangan</th>
                 {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredRecords.length === 0 ? (
+              {sortedRecords.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 6 : 5} className="px-6 py-12 text-center text-slate-400 italic">
                     Belum ada data riwayat pH air.
                   </td>
                 </tr>
               ) : (
-                filteredRecords.map((record) => {
+                sortedRecords.map((record) => {
                   const status = getPHStatusDetails(record.phValue);
                   return (
                     <tr key={record.id} className="hover:bg-slate-50/50 transition-colors">
@@ -90,10 +235,10 @@ export default function PHList({ records }: PHListProps) {
                       </td>
                       <td className="px-6 py-4 text-slate-500 text-sm italic">
                         {record.notes ? (
-                           <div className="flex items-center gap-1">
-                             <Info className="w-3 h-3" />
-                             <span>{record.notes}</span>
-                           </div>
+                          <div className="flex items-center gap-1">
+                            <Info className="w-3 h-3" />
+                            <span>{record.notes}</span>
+                          </div>
                         ) : '-'}
                       </td>
                       {isAdmin && (

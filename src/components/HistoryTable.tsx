@@ -15,8 +15,10 @@ import {
 import { deleteLogisticsEntry, updateLogisticsEntry } from '../services/logisticsService';
 import { subscribeToFarmers } from '../services/farmerService';
 import { getClientUserRole } from '../services/userService';
-import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save, Upload, ClipboardList, Search, User, MapPin, ArrowUpDown, ChevronUp, ChevronDown, Calendar } from 'lucide-react';
+import { Download, Trash2, AlertTriangle, X, Check, Edit2, Loader2, Save, Upload, ClipboardList, Search, User, MapPin, ArrowUpDown, ChevronUp, ChevronDown, Calendar, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { cn } from '../lib/utils';
 
 // Helper function to get week of year from local date
@@ -50,6 +52,27 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
+  // PDF Export States
+  const [showPdfModal, setShowPdfModal] = useState(false);
+  const [pdfYear, setPdfYear] = useState<number>(2026);
+  const [pdfCommodity, setPdfCommodity] = useState<string>(COMMODITIES[1]);
+  const [pdfSize, setPdfSize] = useState<string>(SIZES[0]);
+  const [pdfCipuleStock, setPdfCipuleStock] = useState<number>(395000);
+  const [pdfMekarbuanaStock, setPdfMekarbuanaStock] = useState<number>(106000);
+  const [pdfHeadName, setPdfHeadName] = useState<string>('Diding haryadi, SH');
+  const [pdfHeadNip, setPdfHeadNip] = useState<string>('NIP.19740906 200801 1 003');
+  const [pdfUnit, setPdfUnit] = useState<string>('Ekor');
+  const [pdfAddStockToSisa, setPdfAddStockToSisa] = useState<boolean>(false);
+  const [pdfReportDate, setPdfReportDate] = useState<string>(() => {
+    const months = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    const d = new Date();
+    return `Karawang, ${months[d.getMonth()]} ${d.getFullYear()}`;
+  });
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
   // Sync edited week when editInputDate changes
   useEffect(() => {
     if (editInputDate) {
@@ -58,6 +81,22 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
     }
   }, [editInputDate]);
 
+  // Dynamically initialize Stock Awal from 'Penyetokan Ulang' (Restocking) database entries when modal opens or year, commodity, or size changes
+  useEffect(() => {
+    if (showPdfModal) {
+      const cipuleRestock = entries
+        .filter(e => e.location === 'Cipule' && e.type === 'Penyetokan Ulang' && new Date(e.createdAt).getFullYear() === pdfYear && e.commodity === pdfCommodity && e.size === pdfSize)
+        .reduce((sum, e) => sum + e.quantity, 0);
+      
+      const mekarbuanaRestock = entries
+        .filter(e => e.location === 'Mekarbuana' && e.type === 'Penyetokan Ulang' && new Date(e.createdAt).getFullYear() === pdfYear && e.commodity === pdfCommodity && e.size === pdfSize)
+        .reduce((sum, e) => sum + e.quantity, 0);
+
+      setPdfCipuleStock(cipuleRestock);
+      setPdfMekarbuanaStock(mekarbuanaRestock);
+    }
+  }, [showPdfModal, pdfYear, pdfCommodity, pdfSize, entries]);
+
   // Image zoom/lightbox state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
@@ -65,7 +104,8 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
   const [isCompressingEdit, setIsCompressingEdit] = useState(false);
   const [editImageError, setEditImageError] = useState<string | null>(null);
 
-  // Sorting states
+  // Sorting & Filtering states
+  const [activeLocationTab, setActiveLocationTab] = useState<'all' | 'Cipule' | 'Mekarbuana'>('all');
   const [sortField, setSortField] = useState<'month' | 'location' | 'commodity' | 'type' | 'quantity'>('month');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -84,7 +124,16 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
     }
   };
 
-  const sortedEntries = [...entries].sort((a, b) => {
+  const countAll = entries.length;
+  const countCipule = entries.filter(e => e.location === 'Cipule').length;
+  const countMekarbuana = entries.filter(e => e.location === 'Mekarbuana').length;
+
+  const filteredEntriesByLocation = entries.filter(e => {
+    if (activeLocationTab === 'all') return true;
+    return e.location === activeLocationTab;
+  });
+
+  const sortedEntries = [...filteredEntriesByLocation].sort((a, b) => {
     let comparison = 0;
     if (sortField === 'month') {
       comparison = getWeekNumber(a.month) - getWeekNumber(b.month);
@@ -339,13 +388,88 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-slate-800">Riwayat Logistik</h2>
-        <button
-          onClick={exportToExcel}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold transition-all shadow-md shadow-green-100"
-        >
-          <Download className="w-4 h-4" />
-          Ekspor Excel
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowPdfModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all shadow-md shadow-red-100 cursor-pointer text-sm"
+          >
+            <FileText className="w-4 h-4" />
+            Ekspor PDF Laporan
+          </button>
+          <button
+            onClick={exportToExcel}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold transition-all shadow-md shadow-green-100 cursor-pointer text-sm"
+          >
+            <Download className="w-4 h-4" />
+            Ekspor Excel
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Filter Lokasi */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200/80">
+        <div className="flex items-center gap-1 w-full sm:w-auto bg-slate-200/50 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveLocationTab('all')}
+            className={cn(
+              "flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+              activeLocationTab === 'all'
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-600 hover:text-slate-900 hover:bg-white/30"
+            )}
+          >
+            <span>Semua Lokasi</span>
+            <span className={cn(
+              "px-1.5 py-0.5 rounded text-[10px] font-extrabold",
+              activeLocationTab === 'all' ? "bg-blue-50 text-blue-600" : "bg-slate-200 text-slate-500"
+            )}>
+              {countAll}
+            </span>
+          </button>
+          
+          <button
+            onClick={() => setActiveLocationTab('Cipule')}
+            className={cn(
+              "flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+              activeLocationTab === 'Cipule'
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-600 hover:text-slate-900 hover:bg-white/30"
+            )}
+          >
+            <MapPin className={cn("w-3.5 h-3.5", activeLocationTab === 'Cipule' ? "text-blue-500" : "text-slate-400")} />
+            <span>BBI Cipule</span>
+            <span className={cn(
+              "px-1.5 py-0.5 rounded text-[10px] font-extrabold",
+              activeLocationTab === 'Cipule' ? "bg-blue-50 text-blue-600" : "bg-slate-200 text-slate-500"
+            )}>
+              {countCipule}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveLocationTab('Mekarbuana')}
+            className={cn(
+              "flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer",
+              activeLocationTab === 'Mekarbuana'
+                ? "bg-white text-blue-600 shadow-sm"
+                : "text-slate-600 hover:text-slate-900 hover:bg-white/30"
+            )}
+          >
+            <MapPin className={cn("w-3.5 h-3.5", activeLocationTab === 'Mekarbuana' ? "text-blue-500" : "text-slate-400")} />
+            <span>BBI Mekarbuana</span>
+            <span className={cn(
+              "px-1.5 py-0.5 rounded text-[10px] font-extrabold",
+              activeLocationTab === 'Mekarbuana' ? "bg-blue-50 text-blue-600" : "bg-slate-200 text-slate-500"
+            )}>
+              {countMekarbuana}
+            </span>
+          </button>
+        </div>
+
+        {/* Short Summary Info */}
+        <div className="flex items-center gap-4 text-xs font-semibold text-slate-500 px-2">
+          <span>Menampilkan <strong className="text-blue-600 font-extrabold">{filteredEntriesByLocation.length}</strong> dari <strong className="text-slate-700">{entries.length}</strong> data</span>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -967,6 +1091,554 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
           </div>
         </div>
       )}
+
+      {/* MODAL EKSPOR PDF LAPORAN */}
+      {showPdfModal && (() => {
+        // Safe inline styles to completely avoid modern Tailwind v4 "oklch" colors in html2canvas
+        const pdfStyles = {
+          container: {
+            backgroundColor: '#ffffff',
+            color: '#000000',
+            padding: '40px',
+            width: '1120px',
+            flexShrink: 0,
+            fontFamily: 'sans-serif',
+            lineHeight: '1.5',
+            position: 'relative' as const,
+            display: 'flex',
+            flexDirection: 'column' as const,
+            border: '1px solid #cbd5e1'
+          },
+          title: {
+            textAlign: 'center' as const,
+            fontWeight: 'bold',
+            fontSize: '16px',
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.05em',
+            color: '#000000',
+            marginBottom: '0.5rem'
+          },
+          metadata: {
+            marginTop: '1.5rem',
+            marginBottom: '1rem',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            color: '#000000',
+            display: 'flex',
+            flexDirection: 'column' as const,
+            gap: '0.25rem'
+          },
+          table: {
+            width: '100%',
+            borderCollapse: 'collapse' as const,
+            border: '1px solid #000000',
+            fontSize: '10px',
+            color: '#000000'
+          },
+          th: {
+            border: '1px solid #000000',
+            padding: '6px',
+            verticalAlign: 'middle',
+            textAlign: 'center' as const,
+            fontWeight: '800',
+            backgroundColor: '#f1f5f9'
+          },
+          td: {
+            border: '1px solid #000000',
+            padding: '4px',
+            verticalAlign: 'middle'
+          },
+          tdLeft: {
+            border: '1px solid #000000',
+            padding: '4px',
+            verticalAlign: 'middle',
+            textAlign: 'left' as const
+          },
+          tdRight: {
+            border: '1px solid #000000',
+            padding: '4px',
+            verticalAlign: 'middle',
+            textAlign: 'right' as const
+          },
+          tdCenter: {
+            border: '1px solid #000000',
+            padding: '4px',
+            verticalAlign: 'middle',
+            textAlign: 'center' as const
+          },
+          rowTotalBg: {
+            backgroundColor: '#f8fafc'
+          },
+          rowSisaBg: {
+            backgroundColor: '#00b050',
+            color: '#ffffff'
+          },
+          signature: {
+            marginTop: '2rem',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            fontSize: '11px',
+            color: '#000000'
+          },
+          signatureBox: {
+            width: '320px',
+            textAlign: 'center' as const,
+            display: 'flex',
+            flexDirection: 'column' as const,
+            gap: '3rem'
+          }
+        };
+
+        // PDF Report Calculations
+        const getMonthlyValues = (location: 'Cipule' | 'Mekarbuana') => {
+          const produksi = Array(12).fill(0);
+          const penjualan = Array(12).fill(0);
+          const restocking = Array(12).fill(0); // remains 0 since Restocking is "stock tahun lalu"
+          const hibah = Array(12).fill(0);
+          const kematian = Array(12).fill(0);
+
+          entries.forEach(e => {
+            if (e.location !== location) return;
+            if (e.commodity !== pdfCommodity) return;
+            if (e.size !== pdfSize) return;
+            
+            const date = new Date(e.createdAt);
+            if (date.getFullYear() !== pdfYear) return;
+
+            const m = date.getMonth(); // 0 to 11
+            if (m >= 0 && m < 12) {
+              if (e.type === 'Produksi') {
+                produksi[m] += e.quantity;
+              } else if (e.type === 'Penjualan') {
+                penjualan[m] += e.quantity;
+              } else if (e.type === 'Penyetokan Ulang') {
+                // Restocking is considered previous year's stock, not entered in monthly columns
+              } else if (e.type === 'Hibah') {
+                hibah[m] += e.quantity;
+              } else if (e.type === 'Kematian Ikan') {
+                kematian[m] += e.quantity;
+              }
+            }
+          });
+
+          // Calculate monthly sisa benih
+          const sisa = Array(12).fill(0);
+          const stockAwal = location === 'Cipule' ? pdfCipuleStock : pdfMekarbuanaStock;
+          
+          let runningStock = stockAwal;
+          for (let m = 0; m < 12; m++) {
+            if (pdfAddStockToSisa) {
+              runningStock = runningStock + produksi[m] - penjualan[m] - hibah[m] - kematian[m];
+              sisa[m] = runningStock;
+            } else {
+              sisa[m] = produksi[m] - penjualan[m] - hibah[m] - kematian[m];
+            }
+          }
+
+          return { produksi, penjualan, restocking, hibah, kematian, sisa };
+        };
+
+        const cipule = getMonthlyValues('Cipule');
+        const mekarbuana = getMonthlyValues('Mekarbuana');
+
+        const cipuleProduksiTotal = cipule.produksi.reduce((a, b) => a + b, 0);
+        const cipulePenjualanTotal = cipule.penjualan.reduce((a, b) => a + b, 0);
+        const cipuleRestockingTotal = cipule.restocking.reduce((a, b) => a + b, 0);
+        const cipuleHibahTotal = cipule.hibah.reduce((a, b) => a + b, 0);
+        const cipuleKematianTotal = cipule.kematian.reduce((a, b) => a + b, 0);
+        const cipuleSisaTotal = pdfAddStockToSisa 
+          ? (pdfCipuleStock + cipuleProduksiTotal - cipulePenjualanTotal - cipuleHibahTotal - cipuleKematianTotal)
+          : (cipuleProduksiTotal - cipulePenjualanTotal - cipuleHibahTotal - cipuleKematianTotal);
+
+        const mekarbuanaProduksiTotal = mekarbuana.produksi.reduce((a, b) => a + b, 0);
+        const mekarbuanaPenjualanTotal = mekarbuana.penjualan.reduce((a, b) => a + b, 0);
+        const mekarbuanaRestockingTotal = mekarbuana.restocking.reduce((a, b) => a + b, 0);
+        const mekarbuanaHibahTotal = mekarbuana.hibah.reduce((a, b) => a + b, 0);
+        const mekarbuanaKematianTotal = mekarbuana.kematian.reduce((a, b) => a + b, 0);
+        const mekarbuanaSisaTotal = pdfAddStockToSisa 
+          ? (pdfMekarbuanaStock + mekarbuanaProduksiTotal - mekarbuanaPenjualanTotal - mekarbuanaHibahTotal - mekarbuanaKematianTotal)
+          : (mekarbuanaProduksiTotal - mekarbuanaPenjualanTotal - mekarbuanaHibahTotal - mekarbuanaKematianTotal);
+
+        const formatCell = (val: number) => {
+          if (val === 0) return '-';
+          return val.toLocaleString('id-ID');
+        };
+
+        const handleDownloadPdf = async () => {
+          const element = document.getElementById('report-pdf-content');
+          if (!element) return;
+          
+          setIsGeneratingPdf(true);
+          try {
+            const canvas = await html2canvas(element, {
+              scale: 2.5, // ultra sharp
+              useCORS: true,
+              logging: false,
+              backgroundColor: '#ffffff'
+            });
+            
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF({
+              orientation: 'landscape',
+              unit: 'mm',
+              format: 'a4'
+            });
+            
+            const imgWidth = 297; // A4 landscape width
+            const pageHeight = 210; // A4 landscape height
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            
+            let heightLeft = imgHeight;
+            let position = 0;
+            
+            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+            
+            while (heightLeft >= 0) {
+              position = heightLeft - imgHeight;
+              pdf.addPage();
+              pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+              heightLeft -= pageHeight;
+            }
+            
+            pdf.save(`Laporan_Logistik_BBI_${pdfYear}.pdf`);
+          } catch (error) {
+            console.error('Error generating PDF:', error);
+            alert('Gagal mengekspor PDF. Silakan coba lagi.');
+          } finally {
+            setIsGeneratingPdf(false);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl max-w-6xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+              
+              {/* Header Modal */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-red-50 text-red-600 rounded-xl">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-base">Ekspor PDF Format Resmi UPTD BBI</h3>
+                    <p className="text-xs text-slate-400">Sesuaikan data dan unduh laporan resmi sesuai format Kabupaten Karawang</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowPdfModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body Modal */}
+              <div className="flex-1 flex flex-col lg:flex-row gap-6 p-6 overflow-y-auto min-h-0">
+                
+                {/* Form Pengaturan (Kiri) */}
+                <div className="w-full lg:w-80 shrink-0 space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-200/60 text-xs overflow-y-auto max-h-full">
+                  <h4 className="font-extrabold text-slate-700 text-sm uppercase tracking-wider pb-2 border-b border-slate-200">Pengaturan Laporan</h4>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block font-bold text-slate-600 mb-1">Tahun Laporan</label>
+                      <input
+                        type="number"
+                        value={pdfYear}
+                        onChange={(e) => setPdfYear(parseInt(e.target.value) || 2026)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all text-xs outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-600 mb-1">Jenis Ikan</label>
+                      <select
+                        value={pdfCommodity}
+                        onChange={(e) => setPdfCommodity(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all text-xs outline-none cursor-pointer"
+                      >
+                        {COMMODITIES.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-600 mb-1">Ukuran</label>
+                      <select
+                        value={pdfSize}
+                        onChange={(e) => setPdfSize(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all text-xs outline-none cursor-pointer"
+                      >
+                        {SIZES.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                     <div>
+                      <label className="block font-bold text-slate-600 mb-1">Satuan</label>
+                      <input
+                        type="text"
+                        value={pdfUnit}
+                        onChange={(e) => setPdfUnit(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all text-xs outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-600 mb-1">Tanggal Tanda Tangan</label>
+                      <input
+                        type="text"
+                        value={pdfReportDate}
+                        onChange={(e) => setPdfReportDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all text-xs outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-600 mb-1">Nama Kepala UPTD</label>
+                      <input
+                        type="text"
+                        value={pdfHeadName}
+                        onChange={(e) => setPdfHeadName(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all text-xs outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-600 mb-1">NIP Kepala UPTD</label>
+                      <input
+                        type="text"
+                        value={pdfHeadNip}
+                        onChange={(e) => setPdfHeadNip(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all text-xs outline-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
+                      <input
+                        type="checkbox"
+                        id="pdfAddStockToSisa"
+                        checked={pdfAddStockToSisa}
+                        onChange={(e) => setPdfAddStockToSisa(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                      />
+                      <label htmlFor="pdfAddStockToSisa" className="font-bold text-slate-700 cursor-pointer select-none">
+                        Kumulatif Stock Awal
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Preview (Kanan) */}
+                <div className="flex-1 flex flex-col min-h-0 min-w-0">
+                  <div className="flex justify-between items-center mb-2 px-1">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pratinjau Laporan Resmi (A4 Lanskap)</span>
+                    <span className="text-[10px] text-slate-400">Tampilan akan disesuaikan otomatis saat diunduh</span>
+                  </div>
+                  
+                  {/* Container dengan horizontal & vertical scroll untuk melihat pratinjau penuh */}
+                  <div className="flex-1 overflow-auto bg-slate-100/70 p-4 rounded-2xl border border-slate-200/80 flex justify-start items-start">
+                    
+                    {/* Halaman PDF dengan lebar tetap agar tidak berantakan di layar kecil */}
+                    <div 
+                      id="report-pdf-content" 
+                      style={pdfStyles.container}
+                    >
+                      {/* Judul Atas */}
+                      <div style={pdfStyles.title}>
+                        <h4>KABUPATEN KARAWANG</h4>
+                        <h4>TAHUN {pdfYear}</h4>
+                      </div>
+
+                      {/* Detail Metadata */}
+                      <div style={pdfStyles.metadata}>
+                        <div className="flex">
+                          <span className="w-24">Jenis Ikan</span>
+                          <span>: {pdfCommodity}</span>
+                        </div>
+                        <div className="flex">
+                          <span className="w-24">Ukuran</span>
+                          <span>: {pdfSize}</span>
+                        </div>
+                      </div>
+
+                      {/* Tabel Grid Laporan */}
+                      <div className="overflow-x-auto">
+                        <table style={pdfStyles.table}>
+                          <thead>
+                            <tr style={{ textAlign: 'center' }}>
+                              <th style={{ ...pdfStyles.th, width: '48px' }} colSpan={2} rowSpan={2}>POS. BBI</th>
+                              <th style={{ ...pdfStyles.th, width: '96px' }} rowSpan={2}>Uraian</th>
+                              <th style={{ ...pdfStyles.th, width: '56px' }} rowSpan={2}>Satuan</th>
+                              <th style={{ ...pdfStyles.th, width: '80px' }} rowSpan={2}>stock tahun lalu</th>
+                              <th style={pdfStyles.th} colSpan={12}>BULAN</th>
+                              <th style={{ ...pdfStyles.th, width: '96px' }} rowSpan={2}>JUMLAH ({pdfUnit})</th>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontSize: '9px' }}>
+                              {['Januari', 'Pebruari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'Nopember', 'Desember'].map((m) => (
+                                <th key={m} style={{ ...pdfStyles.th, minWidth: '55px' }}>{m}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                           <tbody>
+                            
+                            {/* BBI 1: CIPULE */}
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdCenter, fontWeight: 'bold', fontSize: '12px' }} rowSpan={6}>1</td>
+                              <td style={{ ...pdfStyles.tdCenter, fontWeight: '800', fontSize: '12px', textTransform: 'uppercase' }} rowSpan={6}>CIPULE</td>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Produksi</td>
+                              <td style={pdfStyles.tdCenter} rowSpan={5}>{pdfUnit}</td>
+                              <td style={pdfStyles.tdRight}>-</td>
+                              {cipule.produksi.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(cipuleProduksiTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Penjualan</td>
+                              <td style={pdfStyles.tdRight}>-</td>
+                              {cipule.penjualan.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(cipulePenjualanTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Restocking</td>
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold' }}>{formatCell(pdfCipuleStock)}</td>
+                              {cipule.restocking.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(cipuleRestockingTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Hibah</td>
+                              <td style={pdfStyles.tdRight}>-</td>
+                              {cipule.hibah.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(cipuleHibahTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Kematian</td>
+                              <td style={pdfStyles.tdRight}>-</td>
+                              {cipule.kematian.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(cipuleKematianTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                              <td style={{ ...pdfStyles.tdCenter, textTransform: 'uppercase' }} colSpan={3}>JUMLAH SISA BENIH ({pdfUnit.toUpperCase()})</td>
+                              {cipule.sisa.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowSisaBg }}>{formatCell(cipuleSisaTotal)}</td>
+                            </tr>
+
+                            {/* BBI 2: MEKARBUANA */}
+                            <tr style={{ textAlign: 'center', borderTop: '1px solid #000000', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdCenter, fontWeight: 'bold', fontSize: '12px' }} rowSpan={6}>2</td>
+                              <td style={{ ...pdfStyles.tdCenter, fontWeight: '800', fontSize: '12px', textTransform: 'uppercase' }} rowSpan={6}>
+                                MEKARBUANA<br />(LOJI)
+                              </td>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Produksi</td>
+                              <td style={pdfStyles.tdCenter} rowSpan={5}>{pdfUnit}</td>
+                              <td style={pdfStyles.tdRight}>-</td>
+                              {mekarbuana.produksi.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(mekarbuanaProduksiTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Penjualan</td>
+                              <td style={pdfStyles.tdRight}>-</td>
+                              {mekarbuana.penjualan.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(mekarbuanaPenjualanTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Restocking</td>
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold' }}>{formatCell(pdfMekarbuanaStock)}</td>
+                              {mekarbuana.restocking.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(mekarbuanaRestockingTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Hibah</td>
+                              <td style={pdfStyles.tdRight}>-</td>
+                              {mekarbuana.hibah.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(mekarbuanaHibahTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: '500' }}>
+                              <td style={{ ...pdfStyles.tdLeft, fontWeight: '600' }}>Kematian</td>
+                              <td style={pdfStyles.tdRight}>-</td>
+                              {mekarbuana.kematian.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowTotalBg }}>{formatCell(mekarbuanaKematianTotal)}</td>
+                            </tr>
+                            <tr style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                              <td style={{ ...pdfStyles.tdCenter, textTransform: 'uppercase' }} colSpan={3}>JUMLAH SISA BENIH ({pdfUnit.toUpperCase()})</td>
+                              {mekarbuana.sisa.map((val, idx) => (
+                                <td key={idx} style={pdfStyles.tdRight}>{formatCell(val)}</td>
+                              ))}
+                              <td style={{ ...pdfStyles.tdRight, fontWeight: 'bold', ...pdfStyles.rowSisaBg }}>{formatCell(mekarbuanaSisaTotal)}</td>
+                            </tr>
+
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Tanda Tangan */}
+                      <div style={pdfStyles.signature}>
+                        <div style={pdfStyles.signatureBox}>
+                          <div>
+                            <p>{pdfReportDate}</p>
+                            <p style={{ fontWeight: 'bold' }}>Kepala UPTD Balai Benih Ikan</p>
+                          </div>
+                          <div>
+                            <p style={{ fontWeight: '800', textDecoration: 'underline', textTransform: 'uppercase' }}>{pdfHeadName}</p>
+                            <p style={{ fontWeight: 'bold' }}>{pdfHeadNip}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Footer Modal */}
+              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 shrink-0 bg-slate-50 rounded-b-3xl">
+                <button
+                  type="button"
+                  onClick={() => setShowPdfModal(false)}
+                  className="px-5 py-2.5 border border-slate-200 text-slate-600 hover:bg-slate-100/50 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={isGeneratingPdf}
+                  onClick={handleDownloadPdf}
+                  className="px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white rounded-xl text-xs font-bold shadow-lg shadow-red-100 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  Download Laporan PDF
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -68,6 +68,19 @@ export default function Dashboard({ entries, farmers }: DashboardProps) {
     return result;
   });
 
+  // Calculate current week number of the current date (1-52) based on today's date
+  const currentWeekNumber = (() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const todayNoon = new Date(year, today.getMonth(), today.getDate(), 12, 0, 0, 0);
+    const firstDayOfYear = new Date(year, 0, 1, 12, 0, 0, 0);
+    const pastDaysOfYear = (todayNoon.getTime() - firstDayOfYear.getTime()) / (24 * 60 * 60 * 1000);
+    const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+    return Math.min(52, Math.max(1, weekNum));
+  })();
+
+  const displayedWeeklyFlowData = weeklyFlowData.slice(0, currentWeekNumber);
+
   // Weekly Outflow Data (Penjualan & Hibah) & PAD
   const weeklyData = WEEKS.map(week => {
     const weekEntries = entries.filter(e => e.month === week);
@@ -172,7 +185,9 @@ export default function Dashboard({ entries, farmers }: DashboardProps) {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
             <h3 className="font-bold text-slate-800 flex items-center gap-2">
               <Activity className="w-5 h-5 text-blue-600" />
-              Kurva Komulatif Pemasukan vs Pengeluaran
+              <span>
+                Kurva Komulatif Pemasukan vs Pengeluaran <span className="text-xs font-semibold px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full ml-1">s.d. Minggu ke-{currentWeekNumber}</span>
+              </span>
             </h3>
             
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
@@ -194,7 +209,7 @@ export default function Dashboard({ entries, farmers }: DashboardProps) {
           </div>
           <div className="h-[350px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={weeklyFlowData}>
+              <LineChart data={displayedWeeklyFlowData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis fontSize={12} tickLine={false} axisLine={false} />
@@ -282,9 +297,9 @@ export default function Dashboard({ entries, farmers }: DashboardProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {weeklyFlowData.filter((d, i) => {
+                {displayedWeeklyFlowData.filter((d, i) => {
                   const hasData = LOCATIONS.some(loc => d[`${loc}_WeeklyIn`] > 0 || d[`${loc}_WeeklyOut`] > 0);
-                  const prevHadData = i > 0 && LOCATIONS.some(loc => weeklyFlowData[i-1][`${loc}_In`] > 0 || weeklyFlowData[i-1][`${loc}_Out`] > 0);
+                  const prevHadData = i > 0 && LOCATIONS.some(loc => displayedWeeklyFlowData[i-1] && (displayedWeeklyFlowData[i-1][`${loc}_In`] > 0 || displayedWeeklyFlowData[i-1][`${loc}_Out`] > 0));
                   return hasData || prevHadData;
                 }).map((row) => (
                   <tr key={row.name} className="hover:bg-slate-50/50 transition-colors">
