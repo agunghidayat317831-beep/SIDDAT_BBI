@@ -1449,6 +1449,10 @@ export default function HistoryTable({ entries }: HistoryTableProps) {
                     >
                       {/* Judul Atas */}
                       <div style={pdfStyles.title}>
+                        <h4 style={{ fontSize: '14px', lineHeight: '1.4', marginBottom: '6px', fontWeight: 'bold' }}>
+                          DATA PRODUKSI BENIH IKAN DI BALAI BENIH IKAN<br />
+                          DINAS PERTANIAN KETAHANAN PANGAN DAN PERIKANAN
+                        </h4>
                         <h4>KABUPATEN KARAWANG</h4>
                         <h4>TAHUN {pdfYear}</h4>
                       </div>

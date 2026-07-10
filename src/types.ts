@@ -1,6 +1,6 @@
 export type BBILocation = "Cipule" | "Mekarbuana";
 export type FishCommodity = "Ikan Mas" | "Nila" | "Lele";
-export type SizeCategory = "1-3 cm" | "3-5 cm" | "Indukan";
+export type SizeCategory = "1-3 cm" | "3-5 cm" | "5-8 cm" | "Indukan";
 export type LogisticsType = "Produksi" | "Penjualan" | "Penyetokan Ulang" | "Hibah" | "Kematian Ikan";
 export type FlowType = "Masuk" | "Keluar";
 
@@ -84,7 +84,7 @@ export const WEEKS = Array.from({ length: 52 }, (_, i) => `Minggu ke ${i + 1}`);
 
 export const LOCATIONS: BBILocation[] = ["Cipule", "Mekarbuana"];
 export const COMMODITIES: FishCommodity[] = ["Ikan Mas", "Nila", "Lele"];
-export const SIZES: SizeCategory[] = ["1-3 cm", "3-5 cm", "Indukan"];
+export const SIZES: SizeCategory[] = ["1-3 cm", "3-5 cm", "5-8 cm", "Indukan"];
 export const TYPES: { name: LogisticsType; flow: FlowType }[] = [
   { name: "Produksi", flow: "Masuk" },
   { name: "Penyetokan Ulang", flow: "Masuk" },

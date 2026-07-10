@@ -423,7 +423,7 @@ export default function LogisticsForm() {
           } else {
             const cleanSize = SIZES.find(s => s.toLowerCase() === ukuranRaw.toLowerCase());
             if (!cleanSize) {
-              errors.push(`Ukuran "${ukuranRaw}" tidak dikenal (Pilih "1-3 cm", "3-5 cm", atau "Indukan")`);
+              errors.push(`Ukuran "${ukuranRaw}" tidak dikenal (Pilih "1-3 cm", "3-5 cm", "5-8 cm", atau "Indukan")`);
             } else {
               matchedSize = cleanSize;
             }
